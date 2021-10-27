@@ -121,7 +121,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
             this.setModelMatrixUniforms(shader, matrixStack, region, camera);
 
-
             //TODO
             GlProgram<ComputeShaderInterface> compute = shader.getCompute();
             if (compute != null) {
@@ -160,6 +159,8 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                             compute.getInterface().uniformModelScale.setFloat(vertexType.getModelScale());
                             compute.getInterface().uniformModelOffset.setFloat(vertexType.getModelOffset());
 //                        compute.getInterface().setProjectionMatrix(RenderSystem.getProjectionMatrix());
+                            //TODO Fix ASYNC chunk memory. Something to do with buffer size not equaling # of indices used?
+                            //TODO Fix to work with block face culling.
 
                             glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle(), state.getVertexSegment().getOffset(), state.getVertexSegment().getLength());
                             glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle(), state.getIndexSegment().getOffset(), state.getIndexSegment().getLength());
@@ -173,9 +174,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             }
             //END TODO
 
-
             GlTessellation tessellation = this.createTessellationForRegion(commandList, region.getArenas(), pass);
-
             executeDrawBatches(commandList, tessellation);
         }
         
