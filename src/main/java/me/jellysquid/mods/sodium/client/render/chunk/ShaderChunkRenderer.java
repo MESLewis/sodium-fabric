@@ -7,16 +7,14 @@ import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.format.ChunkMeshAttribute;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkFogMode;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderInterface;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderBindingPoints;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderOptions;
+import me.jellysquid.mods.sodium.client.render.chunk.shader.*;
 import net.minecraft.util.Identifier;
 
 import java.util.Map;
 
 public abstract class ShaderChunkRenderer implements ChunkRenderer {
     private final Map<ChunkShaderOptions, GlProgram<ChunkShaderInterface>> programs = new Object2ObjectOpenHashMap<>();
+    private final Map<ChunkShaderOptions, GlProgram<ComputeShaderInterface>> computes = new Object2ObjectOpenHashMap<>();
 
     protected final ChunkVertexType vertexType;
     protected final GlVertexFormat<ChunkMeshAttribute> vertexFormat;
@@ -36,6 +34,27 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
 
         if (program == null) {
             this.programs.put(options, program = this.createShader("blocks/block_layer_opaque", options));
+        }
+
+        if(options.pass().isTranslucent()) {
+            GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
+
+            if(compute == null) {
+                //Translucent passes use a compute shader for sorting
+                GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,
+                        new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), options.constants());
+
+                try {
+                    this.computes.put(options,
+                            compute = GlProgram.builder(new Identifier("sodium", "chunk_shader_compute"))
+                            .attachShader(shader)
+                            //TODO bindings
+                            .link((_shader) -> new ComputeShaderInterface(_shader)));
+                } finally {
+                    shader.delete();
+                }
+            }
+            program.getInterface().setCompute(compute);
         }
 
         return program;

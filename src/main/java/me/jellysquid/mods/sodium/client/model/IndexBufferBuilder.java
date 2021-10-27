@@ -65,8 +65,11 @@ public class IndexBufferBuilder {
                 maxIndex = Math.max(maxIndex, i);
             }
 
-            this.minIndex = minIndex;
+            //TODO DEBUG
+            this.minIndex = 0;
+//            this.minIndex = minIndex;
             this.maxIndex = maxIndex;
+
 
             this.format = getOptimalIndexType(this.maxIndex - this.minIndex);
         }

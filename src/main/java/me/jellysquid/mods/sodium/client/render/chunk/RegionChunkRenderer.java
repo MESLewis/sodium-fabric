@@ -3,12 +3,14 @@ package me.jellysquid.mods.sodium.client.render.chunk;
 import com.google.common.collect.Lists;
 import com.mojang.blaze3d.systems.RenderSystem;
 import me.jellysquid.mods.sodium.client.SodiumClientMod;
+import me.jellysquid.mods.sodium.client.gl.arena.GlBufferSegment;
 import me.jellysquid.mods.sodium.client.gl.attribute.GlVertexAttributeBinding;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferUsage;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.device.DrawCommandList;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
+import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlIndexType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlPrimitiveType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlTessellation;
@@ -23,13 +25,23 @@ import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.region.RenderRegion;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderBindingPoints;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderInterface;
+import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.Matrix4f;
+import org.lwjgl.opengl.GL32C;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+
+import static org.lwjgl.opengl.GL30C.glBindBufferBase;
+import static org.lwjgl.opengl.GL30C.glBindBufferRange;
+import static org.lwjgl.opengl.GL32C.*;
+import static org.lwjgl.opengl.GL42C.GL_ALL_BARRIER_BITS;
+import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
+import static org.lwjgl.opengl.GL43C.GL_SHADER_STORAGE_BUFFER;
+import static org.lwjgl.opengl.GL43C.glDispatchCompute;
 
 public class RegionChunkRenderer extends ShaderChunkRenderer {
     private final MultiDrawBatch[] batches;
@@ -97,6 +109,8 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
         shader.setProjectionMatrix(RenderSystem.getProjectionMatrix());
         shader.setDrawUniforms(this.chunkInfoBuffer);
 
+
+
         for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
             RenderRegion region = entry.getKey();
             List<RenderSection> regionSections = entry.getValue();
@@ -107,7 +121,61 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
             this.setModelMatrixUniforms(shader, matrixStack, region, camera);
 
+
+            //TODO
+            GlProgram<ComputeShaderInterface> compute = shader.getCompute();
+            if (compute != null) {
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                this.activeProgram.unbind(); //TODO probably bad performance
+                compute.bind();
+
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, this.chunkInfoBuffer.handle());
+
+//                for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
+//                    RenderRegion region = entry.getKey();
+//                    List<RenderSection> regionSections = entry.getValue();
+
+                    if (!regionSections.isEmpty()) {
+                        RenderRegion.RenderRegionArenas arenas = region.getArenas();
+                        for(RenderSection section : regionSections) {
+                            //TODO I'm sure binding new buffers here is slow.
+                            //Figure out how to pass in this data and run compute only once.
+                            ChunkGraphicsState state = section.getGraphicsState(pass);
+                            if(state == null) {
+                                continue;
+                            }
+
+                            float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
+                            float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
+                            float z = getCameraTranslation(region.getOriginZ(), camera.blockZ, camera.deltaZ);
+
+                            Matrix4f matrix = matrixStack.peek()
+                                    .getModel()
+                                    .copy();
+                            matrix.multiplyByTranslation(x, y, z);
+
+//                        compute.getInterface().setCameraPos(x, y, z);
+                            compute.getInterface().setModelViewMatrix(matrix);
+                            compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
+                            compute.getInterface().uniformModelScale.setFloat(vertexType.getModelScale());
+                            compute.getInterface().uniformModelOffset.setFloat(vertexType.getModelOffset());
+//                        compute.getInterface().setProjectionMatrix(RenderSystem.getProjectionMatrix());
+
+                            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle(), state.getVertexSegment().getOffset(), state.getVertexSegment().getLength());
+                            glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle(), state.getIndexSegment().getOffset(), state.getIndexSegment().getLength());
+                            glDispatchCompute(1, 1, 1);
+                        }
+                    }
+//                }
+                compute.unbind();
+                this.activeProgram.bind();
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            }
+            //END TODO
+
+
             GlTessellation tessellation = this.createTessellationForRegion(commandList, region.getArenas(), pass);
+
             executeDrawBatches(commandList, tessellation);
         }
         
