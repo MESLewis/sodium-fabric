@@ -34,6 +34,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -45,7 +46,7 @@ import static org.lwjgl.opengl.GL43C.GL_SHADER_STORAGE_BUFFER;
 import static org.lwjgl.opengl.GL43C.glDispatchCompute;
 
 public class RegionChunkRenderer extends ShaderChunkRenderer {
-    private final MultiDrawBatch[] batches;
+    private final MultiDrawBatch batch;
     private final GlVertexAttributeBinding[] vertexAttributeBindings;
 
     private final GlMutableBuffer chunkInfoBuffer;
@@ -75,15 +76,10 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             }
 
             this.batchSubData = commandList.createMutableBuffer();
-//            batchSubDataBuffer = MemoryUtil.memAlloc(RenderRegion.REGION_SIZE * 3 * 4);
             batchSubDataBuffer = ByteBuffer.allocate(RenderRegion.REGION_SIZE * 3 * 4);
         }
 
-        this.batches = new MultiDrawBatch[GlIndexType.VALUES.length];
-
-        for (int i = 0; i < this.batches.length; i++) {
-            this.batches[i] = MultiDrawBatch.create(ModelQuadFacing.COUNT * RenderRegion.REGION_SIZE);
-        }
+        this.batch = MultiDrawBatch.create(ModelQuadFacing.COUNT * RenderRegion.REGION_SIZE);
     }
 
     private static ByteBuffer createChunkInfoBuffer(MemoryStack stack) {
@@ -124,15 +120,14 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                 continue;
             }
 
-            //TODO
-            //TODO this can ideally be moved outside of render, but its here to minimize memory issues until they can be properly addressed.
+            //TODO Clean up, fix lag spikes, fix water
             GlProgram<ComputeShaderInterface> compute = shader.getCompute();
             if (compute != null) {
                 super.end();
 //            if (compute != null && glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 0) != GL_TIMEOUT_EXPIRED) {
 //                glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 //                glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 1000000000);
-//                glMemoryBarrier(GL_ALL_BARRIER_BITS); //TODO figure out whats needed here
+//                glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 compute.bind();
 
                 if (!regionSections.isEmpty()) {
@@ -152,13 +147,11 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                     compute.getInterface().uniformModelScale.setFloat(vertexType.getModelScale());
                     compute.getInterface().uniformModelOffset.setFloat(vertexType.getModelOffset());
 
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
-
-                    //TODO Fix to work with block face culling.
 
 //                    batchSubDataBuffer.clear();
-                    int[] dataList = new int[regionSections.size()*3];
+//                    int[][] dataList = new int[GlIndexType.VALUES.length][regionSections.size()*3];
+//                    int[] dataList = new int[regionSections.size()*3];
+                    ArrayList<Integer> dataList = new ArrayList<>();
                     int count = 0;
                     for (RenderSection section : regionSections) {
                         ChunkGraphicsState state = section.getGraphicsState(pass);
@@ -167,16 +160,33 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                             continue;
                         }
 
+//                        int indexStride = 0;
+//                        for (ModelQuadFacing facing : ModelQuadFacing.DIRECTIONS) {
+//                            ElementRange range = state.getModelPart(facing);
+//                            if(range != null) {
+//                                indexStride = range.indexType().getStride() * 6; //Compute shader works in batches of 6 indices.
+//                            }
+//                        }
 
-                        dataList[count*3 + 0] = (state.getIndexSegment().getOffset()/12);
-                        dataList[count*3 + 1] = (state.getIndexSegment().getLength()/12);
-                        dataList[count*3 + 2] = (state.getVertexSegment().getOffset()/20);
+//                        if(indexStride == 0) {
+//                            continue;
+//                        }
+
+
+//                        System.out.println(indexStride);
+
+//                        dataList[count*3 + 0] = (state.getIndexSegment().getOffset()/12);
+//                        dataList[count*3 + 1] = (state.getIndexSegment().getLength()/12);
+//                        dataList[count*3 + 2] = (state.getVertexSegment().getOffset()/20);
+                        dataList.add(state.getIndexSegment().getOffset() / 12);
+                        dataList.add(state.getIndexSegment().getLength() / 12);
+                        dataList.add(state.getVertexSegment().getOffset() /20);
                         count++;
                     }
 
                     int buf = glGenBuffers();
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-                    glBufferData(GL_SHADER_STORAGE_BUFFER, dataList, GL_DYNAMIC_DRAW);
+                    glBufferData(GL_SHADER_STORAGE_BUFFER, dataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf);
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
@@ -190,20 +200,21 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 //                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, temp.handle());
 
 
-                    glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
                     glDispatchCompute(count, 1, 1);
 //                    glDispatchCompute(1, 1, 1);
                 }
 //            }
-                GlFence fence = commandList.createFence();
-                fence.sync(10000);
-                if(!fence.isCompleted()) {
-                    System.out.println("COMPUTE TOO SLOW");
-                }
+//                GlFence fence = commandList.createFence();
+//                fence.sync();
+//                if(!fence.isCompleted()) {
+//                    System.out.println("COMPUTE TOO SLOW");
+//                }
+//                glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+//                glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 1000000);
                 compute.unbind();
-//                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 super.begin(pass);
             }
             //END TODO
@@ -216,9 +227,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     }
 
     private boolean buildDrawBatches(List<RenderSection> sections, BlockRenderPass pass, ChunkCameraContext camera) {
-        for (MultiDrawBatch batch : this.batches) {
-            batch.begin();
-        }
+        batch.begin();
 
         for (RenderSection render : sortedChunks(sections, pass.isTranslucent())) {
             ChunkGraphicsState state = render.getGraphicsState(pass);
@@ -237,7 +246,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
             this.addDrawCall(state.getModelPart(ModelQuadFacing.UNASSIGNED), indexOffset, baseVertex);
 
-            if (this.isBlockFaceCullingEnabled) {
+            if (this.isBlockFaceCullingEnabled && !pass.isTranslucent()) {
                 if (camera.posY > bounds.y1) {
                     this.addDrawCall(state.getModelPart(ModelQuadFacing.UP), indexOffset, baseVertex);
                 }
@@ -268,15 +277,8 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             }
         }
 
-        boolean nonEmpty = false;
-
-        for (MultiDrawBatch batch : this.batches) {
-            batch.end();
-
-            nonEmpty |= !batch.isEmpty();
-        }
-
-        return nonEmpty;
+        batch.end();
+        return !batch.isEmpty();
     }
 
     private GlTessellation createTessellationForRegion(CommandList commandList, RenderRegion.RenderRegionArenas arenas, BlockRenderPass pass) {
@@ -290,12 +292,8 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     }
 
     private void executeDrawBatches(CommandList commandList, GlTessellation tessellation) {
-        for (int i = 0; i < this.batches.length; i++) {
-            MultiDrawBatch batch = this.batches[i];
-
-            try (DrawCommandList drawCommandList = commandList.beginTessellating(tessellation)) {
-                drawCommandList.multiDrawElementsBaseVertex(batch.getPointerBuffer(), batch.getCountBuffer(), batch.getBaseVertexBuffer(), GlIndexType.VALUES[i]);
-            }
+        try (DrawCommandList drawCommandList = commandList.beginTessellating(tessellation)) {
+            drawCommandList.multiDrawElementsBaseVertex(batch.getPointerBuffer(), batch.getCountBuffer(), batch.getBaseVertexBuffer(), GlIndexType.UNSIGNED_INT);
         }
     }
 
@@ -314,7 +312,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
     private void addDrawCall(ElementRange part, long baseIndexPointer, int baseVertexIndex) {
         if (part != null) {
-            MultiDrawBatch batch = this.batches[part.indexType().ordinal()];
             batch.add(baseIndexPointer + part.elementPointer(), part.elementCount(), baseVertexIndex + part.baseVertex());
         }
     }
@@ -330,9 +327,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     public void delete() {
         super.delete();
 
-        for (MultiDrawBatch batch : this.batches) {
-            batch.delete();
-        }
+        batch.delete();
 
         RenderDevice.INSTANCE.createCommandList()
                 .deleteBuffer(this.chunkInfoBuffer);

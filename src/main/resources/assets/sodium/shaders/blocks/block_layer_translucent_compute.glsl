@@ -25,9 +25,9 @@ struct Packed {
 };
 
 struct Index {
-    uint i12;
-    uint i34;
-    uint i56;
+    uint i1;
+    uint i2;
+    uint i3;
 };
 
 struct SubData {
@@ -56,6 +56,7 @@ layout(std430, binding = 3) readonly buffer sub_buffer {
     SubData dataArray[];
 };
 
+
 uvec4 unpackPos(Packed p) {
     uint x = p.a_Pos1 & uint(0xFFFF);
     uint y = (p.a_Pos1 >> 16);
@@ -64,9 +65,7 @@ uvec4 unpackPos(Packed p) {
     return uvec4(x,y,z,w);
 }
 
-SubData data = dataArray[gl_LocalInvocationIndex];
-
-float getDistance(int index) {
+float getDistance(uint index, SubData data) {
     vec4 rawPosition = unpackPos(packed_mesh[index + data.VertexOffset]);
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
@@ -76,26 +75,24 @@ float getDistance(int index) {
     return length(pos);
 }
 
-float getAverageDistance(Index pair) {
+float getAverageDistance(Index pair, SubData data) {
     return
-       (getDistance(int(pair.i12 & uint(0xFFFF)))
-      + getDistance(int(pair.i12 >> 16))
-      + getDistance(int(pair.i34 & uint(0xFFFF)))
-      + getDistance(int(pair.i34 >> 16))
-      + getDistance(int(pair.i56 & uint(0xFFFF)))
-      + getDistance(int(pair.i56 >> 16)))
-      / 6;
+       (getDistance(pair.i1, data)
+      + getDistance(pair.i2, data)
+      + getDistance(pair.i3, data))
+      / 3;
 }
 
 void main() {
+    SubData data = dataArray[gl_WorkGroupID.x];
     //Insertion sort of indicies based on vertex
     uint i = data.IndexOffset + 1;
 
-    while(i < data.IndexLength + data.IndexOffset) {
+    while(i < data.IndexOffset + data.IndexLength) {
         Index temp = ipairs[i];
-        float tempDist = getAverageDistance(ipairs[i]);
+        float tempDist = getAverageDistance(ipairs[i], data);
         uint j = i - 1;
-        while(j >= data.IndexOffset && getAverageDistance(ipairs[j]) < tempDist) {
+        while(j >= data.IndexOffset && getAverageDistance(ipairs[j], data) < tempDist) {
             ipairs[j+1] = ipairs[j];
             j = j - 1;
         }

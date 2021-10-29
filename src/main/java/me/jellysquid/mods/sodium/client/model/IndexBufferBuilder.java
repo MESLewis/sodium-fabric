@@ -32,14 +32,6 @@ public class IndexBufferBuilder {
         return new Result(this.indices);
     }
 
-    private static GlIndexType getOptimalIndexType(int count) {
-        if (count < 65536) {
-            return GlIndexType.UNSIGNED_SHORT;
-        } else {
-            return GlIndexType.UNSIGNED_INT;
-        }
-    }
-
     public int getCount() {
         return this.indices.size();
     }
@@ -65,13 +57,13 @@ public class IndexBufferBuilder {
                 maxIndex = Math.max(maxIndex, i);
             }
 
-            //TODO DEBUG
+            //TODO only set min index = 0 for translucent passes?
             this.minIndex = 0;
 //            this.minIndex = minIndex;
             this.maxIndex = maxIndex;
 
 
-            this.format = getOptimalIndexType(this.maxIndex - this.minIndex);
+            this.format = GlIndexType.UNSIGNED_INT;
         }
 
         public int writeTo(int offset, ByteBuffer buffer) {
@@ -84,8 +76,6 @@ public class IndexBufferBuilder {
                 int value = it.nextInt() - this.minIndex;
 
                 switch (this.format) {
-                    case UNSIGNED_BYTE -> buffer.put(pointer, (byte) value);
-                    case UNSIGNED_SHORT -> buffer.putShort(pointer, (short) value);
                     case UNSIGNED_INT -> buffer.putInt(pointer, value);
                 }
 
