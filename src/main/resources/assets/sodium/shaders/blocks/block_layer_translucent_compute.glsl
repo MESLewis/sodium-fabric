@@ -1,5 +1,4 @@
 #version 430
-#extension ARB_shading_language_packing : require
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
@@ -31,6 +30,12 @@ struct Index {
     uint i56;
 };
 
+struct SubData {
+    uint IndexOffset;
+    uint IndexLength;
+    uint VertexOffset;
+};
+
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
@@ -39,12 +44,16 @@ layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
-layout(std430, binding = 1) buffer mesh_buffer_in {
+layout(std430, binding = 1) readonly buffer mesh_buffer_in {
     Packed packed_mesh[];
 };
 
 layout(std430, binding = 2) buffer index_buffer {
     Index ipairs[];
+};
+
+layout(std430, binding = 3) readonly buffer sub_buffer {
+    SubData dataArray[];
 };
 
 uvec4 unpackPos(Packed p) {
@@ -55,8 +64,10 @@ uvec4 unpackPos(Packed p) {
     return uvec4(x,y,z,w);
 }
 
+SubData data = dataArray[gl_LocalInvocationIndex];
+
 float getDistance(int index) {
-    vec4 rawPosition = unpackPos(packed_mesh[index]);
+    vec4 rawPosition = unpackPos(packed_mesh[index + data.VertexOffset]);
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition.w)].Offset.xyz;
@@ -77,23 +88,14 @@ float getAverageDistance(Index pair) {
 }
 
 void main() {
-    int meshLength = packed_mesh.length();
-    int indexLength = ipairs.length();
-
-    //Debug
-//    for(int i = 0; i < meshLength; i++) {
-//        packed_mesh[i].a_TexCoord = int(getDistance(i));
-//        i += int(getDistance(i));
-//        packed_mesh[i].a_TexCoord = int(unpackPos(packed_mesh[i]).x);
-//    }
-
     //Insertion sort of indicies based on vertex
-    int i = 1;
-    while(i < ipairs.length()) {
+    uint i = data.IndexOffset + 1;
+
+    while(i < data.IndexLength + data.IndexOffset) {
         Index temp = ipairs[i];
         float tempDist = getAverageDistance(ipairs[i]);
-        int j = i - 1;
-        while(j >= 0 && getAverageDistance(ipairs[j]) < tempDist) {
+        uint j = i - 1;
+        while(j >= data.IndexOffset && getAverageDistance(ipairs[j]) < tempDist) {
             ipairs[j+1] = ipairs[j];
             j = j - 1;
         }
