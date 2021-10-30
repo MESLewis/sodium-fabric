@@ -57,12 +57,12 @@ layout(std430, binding = 3) readonly buffer sub_buffer {
 };
 
 
-uvec4 unpackPos(Packed p) {
+vec4 unpackPos(Packed p) {
     uint x = p.a_Pos1 & uint(0xFFFF);
     uint y = (p.a_Pos1 >> 16);
     uint z = p.a_Pos2 & uint(0xFFFF);
     uint w = (p.a_Pos2 >> 16);
-    return uvec4(x,y,z,w);
+    return vec4(x,y,z,w);
 }
 
 float getDistance(uint index, SubData data) {
@@ -77,10 +77,9 @@ float getDistance(uint index, SubData data) {
 
 float getAverageDistance(Index pair, SubData data) {
     return
-       (getDistance(pair.i1, data)
+        getDistance(pair.i1, data)
       + getDistance(pair.i2, data)
-      + getDistance(pair.i3, data))
-      / 3;
+      + getDistance(pair.i3, data);
 }
 
 void main() {
