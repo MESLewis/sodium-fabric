@@ -27,46 +27,57 @@ struct Packed {
     uint a_LightCoord; // The light texture coordinate of the vertex
 };
 
-struct Index {
+struct IndexGroup {
     uint i1;
     uint i2;
     uint i3;
 };
 
-struct SubData {
+//Use helper functions to access this data!
+struct MultiDrawEntry {
     uint IndexOffset;
     uint IndexLength;
     uint VertexOffset;
 };
 
-struct ChunkSubDataInfo {
-    uint DataOffset; //Offset into the SubData array that this chunk starts
-    uint DataCount; //How many entries in the SubData array this chunk covers
+struct ChunkMultiDrawRange {
+    uint DataOffset; //Offset into the MultiDrawEntry array that this chunk starts
+    uint DataCount; //How many entries in the MultiDrawEntry array this chunk covers
 };
 
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
+uniform uint u_IndexOffsetStride = 12; //Number of bits referenced per array entry
+uniform uint u_IndexLengthStride = 3; //Number of vertices referenced per array entry
 
 layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
-layout(std430, binding = 1) buffer mesh_buffer_in {
-    Packed packed_mesh[];
+layout(std430, binding = 1) buffer region_mesh_buffer {
+    Packed region_mesh[];
 };
 
-layout(std430, binding = 2) buffer index_buffer {
-    Index ipairs[];
+layout(std430, binding = 2) buffer region_index_buffer {
+    IndexGroup region_index_groups[];
 };
 
 layout(std430, binding = 3) readonly buffer sub_buffer {
-    SubData dataArray[];
+    MultiDrawEntry multiDrawEntry[];
 };
 
 layout(std430, binding = 4) readonly buffer chunk_sub_count {
-    ChunkSubDataInfo chunkSubInfo[];
+    ChunkMultiDrawRange chunkMultiDrawRange[];
 };
+
+uint getIndexOffset(MultiDrawEntry data) {
+    return data.IndexOffset / u_IndexOffsetStride;
+}
+
+uint getIndexLength(MultiDrawEntry data) {
+    return data.IndexLength / u_IndexLengthStride;
+}
 
 vec4 unpackPos(Packed p) {
     uint x = p.a_Pos1 & uint(0xFFFF);
@@ -77,10 +88,10 @@ vec4 unpackPos(Packed p) {
 }
 
 float getDistance(uint index) {
-    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
-    uint vertexOffset = dataArray[subInfo.DataOffset].VertexOffset;
+    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
+    uint vertexOffset = multiDrawEntry[subInfo.DataOffset].VertexOffset;
 
-    vec4 rawPosition = unpackPos(packed_mesh[index + vertexOffset]);
+    vec4 rawPosition = unpackPos(region_mesh[index + vertexOffset]);
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition.w)].Offset.xyz;
@@ -89,32 +100,34 @@ float getDistance(uint index) {
     return length(pos);
 }
 
-float getAverageDistance(Index pair) {
-    return getDistance(pair.i1)
-    + getDistance(pair.i2)
-    + getDistance(pair.i3);
+float getAverageDistance(IndexGroup pair) {
+    //TODO Find best heuristic
+    return min(getDistance(pair.i1), min(getDistance(pair.i2), getDistance(pair.i3)));
+//    return getDistance(pair.i1)
+//    + getDistance(pair.i2)
+//    + getDistance(pair.i3);
 }
 
 //Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
 uint getFullIndex(uint index) {
-    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
+    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
     uint i = 0;
     while(i < subInfo.DataCount) {
-        SubData data = dataArray[subInfo.DataOffset + i];
-        if(index < data.IndexLength) {
-            return data.IndexOffset + index;
+        MultiDrawEntry data = multiDrawEntry[subInfo.DataOffset + i];
+        if(index < getIndexLength(data)) {
+            return getIndexOffset(data) + index;
         }
-        index = index - data.IndexLength;
+        index = index - getIndexLength(data);
         i = i + 1;
     }
     return index;
 }
 
 uint getIndexCount() {
-    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
+    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
     uint r = 0;
     for(uint i = subInfo.DataOffset; i < subInfo.DataOffset + subInfo.DataCount; i = i + 1) {
-        r = r + dataArray[i].IndexLength;
+        r = r + getIndexLength(multiDrawEntry[i]);
     }
     return r;
 }
@@ -125,14 +138,14 @@ void main() {
     uint max = getIndexCount();
 
     while(i < max) {
-        Index temp = ipairs[getFullIndex(i)];
+        IndexGroup temp = region_index_groups[getFullIndex(i)];
         float tempDist = getAverageDistance(temp);
         int j = i - 1;
-        while(j >= 0 && getAverageDistance(ipairs[getFullIndex(j)]) < tempDist) {
-            ipairs[getFullIndex(j+1)] = ipairs[getFullIndex(j)];
+        while(j >= 0 && getAverageDistance(region_index_groups[getFullIndex(j)]) < tempDist) {
+            region_index_groups[getFullIndex(j+1)] = region_index_groups[getFullIndex(j)];
             j = j - 1;
         }
-        ipairs[getFullIndex(j+1)] = temp;
+        region_index_groups[getFullIndex(j+1)] = temp;
         i = i + 1;
     }
 }

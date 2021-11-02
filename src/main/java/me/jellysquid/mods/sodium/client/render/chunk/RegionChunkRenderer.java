@@ -9,12 +9,12 @@ import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.device.DrawCommandList;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
 import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
-import me.jellysquid.mods.sodium.client.gl.sync.GlFence;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlIndexType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlPrimitiveType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlTessellation;
 import me.jellysquid.mods.sodium.client.gl.tessellation.TessellationBinding;
 import me.jellysquid.mods.sodium.client.gl.util.ElementRange;
+import me.jellysquid.mods.sodium.client.gl.util.EnumBitField;
 import me.jellysquid.mods.sodium.client.gl.util.MultiDrawBatch;
 import me.jellysquid.mods.sodium.client.model.quad.properties.ModelQuadFacing;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
@@ -28,16 +28,11 @@ import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterfa
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.PointerBuffer;
-import org.lwjgl.opengl.GL15C;
-import org.lwjgl.opengl.GL20C;
 import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.nio.LongBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -130,8 +125,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                 compute.bind();
 
                 if (!regionSections.isEmpty()) {
-                    RenderRegion.RenderRegionArenas arenas = region.getArenas();
-
                     float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
                     float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
                     float z = getCameraTranslation(region.getOriginZ(), camera.blockZ, camera.deltaZ);
@@ -143,77 +136,11 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
                     compute.getInterface().setModelViewMatrix(matrix);
                     compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
-                    compute.getInterface().uniformModelScale.setFloat(vertexType.getModelScale());
-                    compute.getInterface().uniformModelOffset.setFloat(vertexType.getModelOffset());
+                    compute.getInterface().setup(vertexType);
 
-
-                    ArrayList<Integer> multiDrawList = new ArrayList<>();
-                    ArrayList<Integer> subDataList = new ArrayList<>();
-                    int chunkCount = 0;
-                    PointerBuffer pointerBuffer = batch.getPointerBuffer();
-                    IntBuffer countBuffer = batch.getCountBuffer();
-                    IntBuffer baseVertexBuffer = batch.getBaseVertexBuffer();
-
-                    int lastBaseVertexOffset = baseVertexBuffer.get(0);
-                    int subDataCount = 0;
-                    int totalSubDataCount = 0;
-
-                    int pointer;
-                    int count;
-                    int baseVertex;
-                    while(countBuffer.hasRemaining()) {
-                        pointer = (int) (pointerBuffer.get() / 12); //Buffer is referencing bytes, so we divide by 12 to be referencing the array of structs
-                        count = countBuffer.get() / 3; //3 verticies per array entry.
-                        baseVertex = baseVertexBuffer.get(); //Already referencing array entries
-
-                        multiDrawList.add(pointer); //IndexOffset
-                        multiDrawList.add(count); //IndexLength
-                        multiDrawList.add(baseVertex); //VertexOffset
-
-                        if(baseVertex != lastBaseVertexOffset) {
-                            lastBaseVertexOffset = baseVertex;
-
-                            subDataList.add(totalSubDataCount);
-                            subDataList.add(subDataCount);
-                            totalSubDataCount += subDataCount;
-                            subDataCount = 0;
-                            chunkCount++;
-                        }
-                        subDataCount++;
-                    }
-                    subDataList.add(totalSubDataCount);
-                    subDataList.add(subDataCount);
-                    chunkCount++;
-
-                    int buf = glGenBuffers();
-                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-                    glBufferData(GL_SHADER_STORAGE_BUFFER, multiDrawList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf);
-                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-                    buf = glGenBuffers();
-                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-                    glBufferData(GL_SHADER_STORAGE_BUFFER, subDataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buf);
-                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-//                    GlMutableBuffer temp = commandList.createMutableBuffer();
-//                    commandList.uploadData(temp, batchSubDataBuffer, GlBufferUsage.DYNAMIC_DRAW);
-//                    commandList.bindBuffer(GlBufferTarget.SHADER_STORAGE_BUFFER, batchSubData);
-
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
-                    glDispatchCompute(chunkCount, 1, 1);
-//                    glDispatchCompute(1, 1, 1);
+                    RenderRegion.RenderRegionArenas arenas = region.getArenas();
+                    compute.getInterface().execute(batch, arenas);
                 }
-//            }
-//                GlFence fence = commandList.createFence();
-//                fence.sync();
-//                if(!fence.isCompleted()) {
-//                    System.out.println("COMPUTE TOO SLOW");
-//                }
-//                glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-//                glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 1000000);
                 compute.unbind();
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 super.begin(pass);
@@ -247,7 +174,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
             this.addDrawCall(state.getModelPart(ModelQuadFacing.UNASSIGNED), indexOffset, baseVertex);
 
-            if (this.isBlockFaceCullingEnabled) {
+            if (this.isBlockFaceCullingEnabled && !pass.isTranslucent()) {
                 if (camera.posY > bounds.y1) {
                     this.addDrawCall(state.getModelPart(ModelQuadFacing.UP), indexOffset, baseVertex);
                 }
