@@ -27,12 +27,15 @@ import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderInterface
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.Matrix4f;
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.opengl.GL15C;
 import org.lwjgl.opengl.GL20C;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -124,10 +127,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             GlProgram<ComputeShaderInterface> compute = shader.getCompute();
             if (compute != null) {
                 super.end();
-//            if (compute != null && glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 0) != GL_TIMEOUT_EXPIRED) {
-//                glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-//                glClientWaitSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0, 1000000000);
-//                glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 compute.bind();
 
                 if (!regionSections.isEmpty()) {
@@ -148,61 +147,63 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                     compute.getInterface().uniformModelOffset.setFloat(vertexType.getModelOffset());
 
 
-//                    batchSubDataBuffer.clear();
-//                    int[][] dataList = new int[GlIndexType.VALUES.length][regionSections.size()*3];
-//                    int[] dataList = new int[regionSections.size()*3];
-                    ArrayList<Integer> dataList = new ArrayList<>();
-                    int count = 0;
-                    for (RenderSection section : regionSections) {
-                        ChunkGraphicsState state = section.getGraphicsState(pass);
+                    ArrayList<Integer> multiDrawList = new ArrayList<>();
+                    ArrayList<Integer> subDataList = new ArrayList<>();
+                    int chunkCount = 0;
+                    PointerBuffer pointerBuffer = batch.getPointerBuffer();
+                    IntBuffer countBuffer = batch.getCountBuffer();
+                    IntBuffer baseVertexBuffer = batch.getBaseVertexBuffer();
 
-                        if(state == null) {
-                            continue;
+                    int lastBaseVertexOffset = baseVertexBuffer.get(0);
+                    int subDataCount = 0;
+                    int totalSubDataCount = 0;
+
+                    int pointer;
+                    int count;
+                    int baseVertex;
+                    while(countBuffer.hasRemaining()) {
+                        pointer = (int) (pointerBuffer.get() / 12); //Buffer is referencing bytes, so we divide by 12 to be referencing the array of structs
+                        count = countBuffer.get() / 3; //3 verticies per array entry.
+                        baseVertex = baseVertexBuffer.get(); //Already referencing array entries
+
+                        multiDrawList.add(pointer); //IndexOffset
+                        multiDrawList.add(count); //IndexLength
+                        multiDrawList.add(baseVertex); //VertexOffset
+
+                        if(baseVertex != lastBaseVertexOffset) {
+                            lastBaseVertexOffset = baseVertex;
+
+                            subDataList.add(totalSubDataCount);
+                            subDataList.add(subDataCount);
+                            totalSubDataCount += subDataCount;
+                            subDataCount = 0;
+                            chunkCount++;
                         }
-
-//                        int indexStride = 0;
-//                        for (ModelQuadFacing facing : ModelQuadFacing.DIRECTIONS) {
-//                            ElementRange range = state.getModelPart(facing);
-//                            if(range != null) {
-//                                indexStride = range.indexType().getStride() * 6; //Compute shader works in batches of 6 indices.
-//                            }
-//                        }
-
-//                        if(indexStride == 0) {
-//                            continue;
-//                        }
-
-
-//                        System.out.println(indexStride);
-
-//                        dataList[count*3 + 0] = (state.getIndexSegment().getOffset()/12);
-//                        dataList[count*3 + 1] = (state.getIndexSegment().getLength()/12);
-//                        dataList[count*3 + 2] = (state.getVertexSegment().getOffset()/20);
-                        dataList.add(state.getIndexSegment().getOffset() / 12);
-                        dataList.add(state.getIndexSegment().getLength() / 12);
-                        dataList.add(state.getVertexSegment().getOffset() /20);
-                        count++;
+                        subDataCount++;
                     }
+                    subDataList.add(totalSubDataCount);
+                    subDataList.add(subDataCount);
+                    chunkCount++;
 
                     int buf = glGenBuffers();
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-                    glBufferData(GL_SHADER_STORAGE_BUFFER, dataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
+                    glBufferData(GL_SHADER_STORAGE_BUFFER, multiDrawList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf);
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+                    buf = glGenBuffers();
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
+                    glBufferData(GL_SHADER_STORAGE_BUFFER, subDataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buf);
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 //                    GlMutableBuffer temp = commandList.createMutableBuffer();
 //                    commandList.uploadData(temp, batchSubDataBuffer, GlBufferUsage.DYNAMIC_DRAW);
 //                    commandList.bindBuffer(GlBufferTarget.SHADER_STORAGE_BUFFER, batchSubData);
-//
-//                    GL20C.glBufferData(GlBufferTarget.SHADER_STORAGE_BUFFER.getTargetParameter(), batchSubDataBuffer, GL_DYNAMIC_DRAW);
-//                    batchSubData.setSize(batchSubDataBuffer.remaining());
-
-//                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, temp.handle());
-
 
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
-                    glDispatchCompute(count, 1, 1);
+                    glDispatchCompute(chunkCount, 1, 1);
 //                    glDispatchCompute(1, 1, 1);
                 }
 //            }

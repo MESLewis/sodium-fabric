@@ -15,6 +15,9 @@ struct DrawParameters {
     vec4 Offset;
 };
 
+
+//TODO make all these struct and var names not suck
+
 //Define packed vertex data
 struct Packed {
     uint a_Pos1; //ushort[2] //x,y //The position of the vertex around the model origin
@@ -36,6 +39,11 @@ struct SubData {
     uint VertexOffset;
 };
 
+struct ChunkSubDataInfo {
+    uint DataOffset; //Offset into the SubData array that this chunk starts
+    uint DataCount; //How many entries in the SubData array this chunk covers
+};
+
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
@@ -44,7 +52,7 @@ layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
-layout(std430, binding = 1) readonly buffer mesh_buffer_in {
+layout(std430, binding = 1) buffer mesh_buffer_in {
     Packed packed_mesh[];
 };
 
@@ -56,6 +64,9 @@ layout(std430, binding = 3) readonly buffer sub_buffer {
     SubData dataArray[];
 };
 
+layout(std430, binding = 4) readonly buffer chunk_sub_count {
+    ChunkSubDataInfo chunkSubInfo[];
+};
 
 vec4 unpackPos(Packed p) {
     uint x = p.a_Pos1 & uint(0xFFFF);
@@ -65,8 +76,11 @@ vec4 unpackPos(Packed p) {
     return vec4(x,y,z,w);
 }
 
-float getDistance(uint index, SubData data) {
-    vec4 rawPosition = unpackPos(packed_mesh[index + data.VertexOffset]);
+float getDistance(uint index) {
+    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
+    uint vertexOffset = dataArray[subInfo.DataOffset].VertexOffset;
+
+    vec4 rawPosition = unpackPos(packed_mesh[index + vertexOffset]);
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition.w)].Offset.xyz;
@@ -75,27 +89,50 @@ float getDistance(uint index, SubData data) {
     return length(pos);
 }
 
-float getAverageDistance(Index pair, SubData data) {
-    return
-        getDistance(pair.i1, data)
-      + getDistance(pair.i2, data)
-      + getDistance(pair.i3, data);
+float getAverageDistance(Index pair) {
+    return getDistance(pair.i1)
+    + getDistance(pair.i2)
+    + getDistance(pair.i3);
+}
+
+//Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
+uint getFullIndex(uint index) {
+    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
+    uint i = 0;
+    while(i < subInfo.DataCount) {
+        SubData data = dataArray[subInfo.DataOffset + i];
+        if(index < data.IndexLength) {
+            return data.IndexOffset + index;
+        }
+        index = index - data.IndexLength;
+        i = i + 1;
+    }
+    return index;
+}
+
+uint getIndexCount() {
+    ChunkSubDataInfo subInfo = chunkSubInfo[gl_WorkGroupID.x];
+    uint r = 0;
+    for(uint i = subInfo.DataOffset; i < subInfo.DataOffset + subInfo.DataCount; i = i + 1) {
+        r = r + dataArray[i].IndexLength;
+    }
+    return r;
 }
 
 void main() {
-    SubData data = dataArray[gl_WorkGroupID.x];
     //Insertion sort of indicies based on vertex
-    uint i = data.IndexOffset + 1;
+    int i = 1;
+    uint max = getIndexCount();
 
-    while(i < data.IndexOffset + data.IndexLength) {
-        Index temp = ipairs[i];
-        float tempDist = getAverageDistance(ipairs[i], data);
-        uint j = i - 1;
-        while(j >= data.IndexOffset && getAverageDistance(ipairs[j], data) < tempDist) {
-            ipairs[j+1] = ipairs[j];
+    while(i < max) {
+        Index temp = ipairs[getFullIndex(i)];
+        float tempDist = getAverageDistance(temp);
+        int j = i - 1;
+        while(j >= 0 && getAverageDistance(ipairs[getFullIndex(j)]) < tempDist) {
+            ipairs[getFullIndex(j+1)] = ipairs[getFullIndex(j)];
             j = j - 1;
         }
-        ipairs[j+1] = temp;
+        ipairs[getFullIndex(j+1)] = temp;
         i = i + 1;
     }
 }
