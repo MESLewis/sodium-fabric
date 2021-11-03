@@ -110,6 +110,13 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
         shader.setProjectionMatrix(RenderSystem.getProjectionMatrix());
         shader.setDrawUniforms(this.chunkInfoBuffer);
 
+
+        GlProgram<ComputeShaderInterface> compute = shader.getCompute();
+        if (compute != null) {
+            compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
+            compute.getInterface().setup(vertexType);
+        }
+
         for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
             RenderRegion region = entry.getKey();
             List<RenderSection> regionSections = entry.getValue();
@@ -119,9 +126,9 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             }
 
             //TODO Clean up, fix lag spikes, fix water
-            GlProgram<ComputeShaderInterface> compute = shader.getCompute();
             if (compute != null) {
                 super.end();
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 compute.bind();
 
                 if (!regionSections.isEmpty()) {

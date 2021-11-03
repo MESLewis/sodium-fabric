@@ -23,7 +23,7 @@ public class ComputeShaderInterface {
     private final GlUniformBlock uniformBlockDrawParameters;
     private final GlUniformFloat uniformModelScale;
     private final GlUniformFloat uniformModelOffset;
-    private final ArrayList<Integer> multiDrawList = new ArrayList<>();
+    private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
 
     public ComputeShaderInterface(ShaderBindingContext context) {
@@ -40,11 +40,10 @@ public class ComputeShaderInterface {
     }
 
     public void execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
-        multiDrawList.clear();
+        pointerList.clear();
         subDataList.clear();
         int chunkCount = 0;
         PointerBuffer pointerBuffer = batch.getPointerBuffer();
-        IntBuffer countBuffer = batch.getCountBuffer();
         IntBuffer baseVertexBuffer = batch.getBaseVertexBuffer();
 
         int lastBaseVertexOffset = baseVertexBuffer.get(0);
@@ -52,16 +51,12 @@ public class ComputeShaderInterface {
         int totalSubDataCount = 0;
 
         int pointer;
-        int count;
         int baseVertex;
-        while(countBuffer.hasRemaining()) {
+        while(pointerBuffer.hasRemaining()) {
             pointer = (int) (pointerBuffer.get());
-            count = countBuffer.get();
             baseVertex = baseVertexBuffer.get();
 
-            multiDrawList.add(pointer); //IndexOffset
-            multiDrawList.add(count); //IndexLength
-            multiDrawList.add(baseVertex); //VertexOffset
+            pointerList.add(pointer); //IndexOffset
 
             if(baseVertex != lastBaseVertexOffset) {
                 lastBaseVertexOffset = baseVertex;
@@ -78,16 +73,26 @@ public class ComputeShaderInterface {
         subDataList.add(subDataCount);
         chunkCount++;
 
-        int buf = glGenBuffers();
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, multiDrawList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf);
+        int[] buf = new int[4];
+        glGenBuffers(buf);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[0]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, subDataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf[0]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[1]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, pointerList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buf[1]);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-        buf = glGenBuffers();
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, subDataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buf);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[2]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, batch.getCountBuffer(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, buf[2]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[3]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, batch.getBaseVertexBuffer(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, buf[3]);
+
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());

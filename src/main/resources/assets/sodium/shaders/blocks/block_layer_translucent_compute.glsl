@@ -33,13 +33,6 @@ struct IndexGroup {
     uint i3;
 };
 
-//Use helper functions to access this data!
-struct MultiDrawEntry {
-    uint IndexOffset;
-    uint IndexLength;
-    uint VertexOffset;
-};
-
 struct ChunkMultiDrawRange {
     uint DataOffset; //Offset into the MultiDrawEntry array that this chunk starts
     uint DataCount; //How many entries in the MultiDrawEntry array this chunk covers
@@ -55,7 +48,7 @@ layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
-layout(std430, binding = 1) buffer region_mesh_buffer {
+layout(std430, binding = 1) readonly buffer region_mesh_buffer {
     Packed region_mesh[];
 };
 
@@ -63,20 +56,29 @@ layout(std430, binding = 2) buffer region_index_buffer {
     IndexGroup region_index_groups[];
 };
 
-layout(std430, binding = 3) readonly buffer sub_buffer {
-    MultiDrawEntry multiDrawEntry[];
-};
-
-layout(std430, binding = 4) readonly buffer chunk_sub_count {
+layout(std430, binding = 3) readonly buffer chunk_sub_count {
     ChunkMultiDrawRange chunkMultiDrawRange[];
 };
 
-uint getIndexOffset(MultiDrawEntry data) {
-    return data.IndexOffset / u_IndexOffsetStride;
+layout(std430, binding = 4) readonly buffer index_offset_buffer {
+    int indexOffset[];
+};
+
+layout(std430, binding = 5) readonly buffer index_length_buffer {
+    int indexLength[];
+};
+
+layout(std430, binding = 6) readonly buffer vertex_offset_buffer {
+    int vertexOffset[];
+};
+
+
+uint getIndexOffset(uint i) {
+    return indexOffset[i] / u_IndexOffsetStride;
 }
 
-uint getIndexLength(MultiDrawEntry data) {
-    return data.IndexLength / u_IndexLengthStride;
+uint getIndexLength(uint i) {
+    return indexLength[i] / u_IndexLengthStride;
 }
 
 vec4 unpackPos(Packed p) {
@@ -89,9 +91,9 @@ vec4 unpackPos(Packed p) {
 
 float getDistance(uint index) {
     ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
-    uint vertexOffset = multiDrawEntry[subInfo.DataOffset].VertexOffset;
+    uint vOffset = vertexOffset[subInfo.DataOffset];
 
-    vec4 rawPosition = unpackPos(region_mesh[index + vertexOffset]);
+    vec4 rawPosition = unpackPos(region_mesh[index + vOffset]);
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition.w)].Offset.xyz;
@@ -113,7 +115,7 @@ uint getFullIndex(uint index) {
     ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
     uint i = 0;
     while(i < subInfo.DataCount) {
-        MultiDrawEntry data = multiDrawEntry[subInfo.DataOffset + i];
+        uint data = subInfo.DataOffset + i;
         if(index < getIndexLength(data)) {
             return getIndexOffset(data) + index;
         }
@@ -127,7 +129,7 @@ uint getIndexCount() {
     ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
     uint r = 0;
     for(uint i = subInfo.DataOffset; i < subInfo.DataOffset + subInfo.DataCount; i = i + 1) {
-        r = r + getIndexLength(multiDrawEntry[i]);
+        r = r + getIndexLength(i);
     }
     return r;
 }
