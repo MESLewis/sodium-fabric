@@ -1,6 +1,23 @@
 #version 430
 
-layout(local_size_x = 1, local_size_y = 1) in;
+#define DUMMY_INDEX 10000000
+#define DUMMY_DISTANCE -1000000
+
+//TODO DEBUG
+#define LOCAL_SIZE_X 1024
+
+// Externally defined via shader compiler.
+//#ifndef LOCAL_SIZE_X
+//#define LOCAL_SIZE_X 1
+//#endif
+
+// Note that there exist hardware limits -
+// Look these up for your GPU via https://vulkan.gpuinfo.org/
+//
+// sizeof(local_value[LOCAL_SIZE_X]) : Must be <= maxComputeSharedMemorySize
+// LOCAL_SIZE_X/2  		             : Must be <= maxComputeWorkGroupInvocations
+
+layout(local_size_x = LOCAL_SIZE_X) in;
 
 //in uvec3 gl_NumWorkGroups;
 //in uvec3 gl_workGroupID;
@@ -36,6 +53,7 @@ struct IndexGroup {
 struct ChunkMultiDrawRange {
     uint DataOffset; //Offset into the MultiDrawEntry array that this chunk starts
     uint DataCount; //How many entries in the MultiDrawEntry array this chunk covers
+    uint DataIndexCount; //The count of all indicies referenced by this chunk.
 };
 
 uniform mat4 u_ModelViewMatrix;
@@ -43,6 +61,15 @@ uniform float u_ModelScale;
 uniform float u_ModelOffset;
 uniform uint u_IndexOffsetStride = 12; //Number of bits referenced per array entry
 uniform uint u_IndexLengthStride = 3; //Number of vertices referenced per array entry
+
+
+//Indicates step of algorithm to preform
+layout (binding=1) uniform Parameters {
+    uint n;
+    uint h;
+    uint algorithm;
+} parameters;
+
 
 layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
@@ -72,6 +99,13 @@ layout(std430, binding = 6) readonly buffer vertex_offset_buffer {
     int vertexOffset[];
 };
 
+struct IndexDistancePair {
+    IndexGroup indexGroup;
+    float distance;
+};
+
+//Workgroup memory.
+shared IndexDistancePair local_value[LOCAL_SIZE_X * 2];
 
 uint getIndexOffset(uint i) {
     return indexOffset[i] / u_IndexOffsetStride;
@@ -104,10 +138,10 @@ float getDistance(uint index) {
 
 float getAverageDistance(IndexGroup pair) {
     //TODO Find best heuristic
-    return min(getDistance(pair.i1), min(getDistance(pair.i2), getDistance(pair.i3)));
-//    return getDistance(pair.i1)
-//    + getDistance(pair.i2)
-//    + getDistance(pair.i3);
+//    return min(getDistance(pair.i1), min(getDistance(pair.i2), getDistance(pair.i3)));
+    return (getDistance(pair.i1)
+    + getDistance(pair.i2)
+    + getDistance(pair.i3)) / 3;
 }
 
 //Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
@@ -122,32 +156,138 @@ uint getFullIndex(uint index) {
         index = index - getIndexLength(data);
         i = i + 1;
     }
-    return index;
+    return DUMMY_INDEX;
 }
 
-uint getIndexCount() {
-    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
-    uint r = 0;
-    for(uint i = subInfo.DataOffset; i < subInfo.DataOffset + subInfo.DataCount; i = i + 1) {
-        r = r + getIndexLength(i);
-    }
-    return r;
-}
-
-void main() {
-    //Insertion sort of indicies based on vertex
-    int i = 1;
-    uint max = getIndexCount();
-
-    while(i < max) {
-        IndexGroup temp = region_index_groups[getFullIndex(i)];
-        float tempDist = getAverageDistance(temp);
-        int j = i - 1;
-        while(j >= 0 && getAverageDistance(region_index_groups[getFullIndex(j)]) < tempDist) {
-            region_index_groups[getFullIndex(j+1)] = region_index_groups[getFullIndex(j)];
-            j = j - 1;
-        }
-        region_index_groups[getFullIndex(j+1)] = temp;
-        i = i + 1;
+// Performs compare-and-swap over elements held in shared,
+// workgroup-local memory
+void local_compare_and_swap(uvec2 idx){
+    if (local_value[idx.x].distance < local_value[idx.y].distance) {
+        IndexDistancePair tmp = local_value[idx.x];
+        local_value[idx.x] = local_value[idx.y];
+        local_value[idx.y] = tmp;
     }
 }
+
+// Performs full-height flip (h height) over locally available indices.
+void local_flip(in uint h){
+    uint t = gl_LocalInvocationID.x;
+    barrier();
+
+    uint half_h = h >> 1; // Note: h >> 1 is equivalent to h / 2
+    ivec2 indices =
+    ivec2( h * ( ( 2 * t ) / h ) ) +
+    ivec2( t % half_h, h - 1 - ( t % half_h ) );
+
+    local_compare_and_swap(indices);
+}
+
+// Performs progressively diminishing disperse operations (starting with height h)
+// on locally available indices: e.g. h==8 -> 8 : 4 : 2.
+// One disperse operation for every time we can half h.
+void local_disperse(in uint h){
+    uint t = gl_LocalInvocationID.x;
+    for ( ; h > 1 ; h /= 2 ) {
+
+        barrier();
+
+        uint half_h = h >> 1; // Note: h >> 1 is equivalent to h / 2
+        ivec2 indices =
+        ivec2( h * ( ( 2 * t ) / h ) ) +
+        ivec2( t % half_h, half_h + ( t % half_h ) );
+
+        local_compare_and_swap(indices);
+    }
+}
+
+
+// Perform binary merge sort for local elements, up to a maximum number
+// of elements h.
+void local_bms(uint h){
+    uint t = gl_LocalInvocationID.x;
+    for (uint hh = 2; hh <= h; hh <<= 1) {  // note:  h <<= 1 is same as h *= 2
+        local_flip(hh);
+        local_disperse(hh/2);
+    }
+}
+
+void main(){
+    uint t = gl_LocalInvocationID.x;
+
+    uint fullIndex1 = getFullIndex(t*2);
+    uint fullIndex2 = getFullIndex(t*2+1);
+    IndexGroup rig1 = region_index_groups[fullIndex1];
+    IndexGroup rig2 = region_index_groups[fullIndex2];
+    float distance1 = getAverageDistance(rig1);
+    float distance2 = getAverageDistance(rig2);
+
+    if(fullIndex1 == DUMMY_INDEX) {
+        rig1 = IndexGroup(0, 0, 0);
+        distance1 = DUMMY_DISTANCE;
+    }
+    if(fullIndex2 == DUMMY_INDEX) {
+        rig2 = IndexGroup(0, 0, 0);
+        distance2 = DUMMY_DISTANCE;
+    }
+
+
+    // Each local worker must save two elements to local memory, as there
+    // are twice as many elments as workers.
+    local_value[t*2]   = IndexDistancePair(rig1, distance1);
+    local_value[t*2+1] = IndexDistancePair(rig2, distance2);
+
+
+//    int n = parameters.n;
+    int n = LOCAL_SIZE_X * 2;
+
+    local_bms(n);
+//    for ( uint h = 2; h <= n; h *= 2 ) {
+//        barrier();
+//        do_flip(h);
+//        for ( uint hh = h / 2; hh > 1 ; hh /= 2 ) {
+//            barrier();
+//            do_disperse(hh);
+//        }
+//    }
+
+    barrier();
+
+    // Write local memory back to buffer
+    IndexGroup ig1 = local_value[t*2].indexGroup;
+    IndexGroup ig2 = local_value[t*2+1].indexGroup;
+
+    if(fullIndex1 != DUMMY_INDEX) {
+        region_index_groups[fullIndex1] = ig1;
+    }
+    if(fullIndex2 != DUMMY_INDEX) {
+        region_index_groups[fullIndex2] = ig2;
+    }
+}
+
+
+
+//void main() {
+//    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
+//    //TODO DEBUG
+//    uint max = min(subInfo.DataIndexCount / u_IndexLengthStride, 1000);
+////    uint max = subInfo.DataIndexCount / u_IndexLengthStride;
+//
+//
+//    //TODO Parallelize sort
+//    //https://poniesandlight.co.uk/reflect/bitonic_merge_sort/
+//
+//    //Insertion sort of indicies based on vertex
+//    int i = 1;
+//
+//    while(i < max) {
+//        IndexGroup temp = region_index_groups[getFullIndex(i)];
+//        float tempDist = getAverageDistance(temp);
+//        int j = i - 1;
+//        while(j >= 0 && getAverageDistance(region_index_groups[getFullIndex(j)]) < tempDist) {
+//            region_index_groups[getFullIndex(j+1)] = region_index_groups[getFullIndex(j)];
+//            j = j - 1;
+//        }
+//        region_index_groups[getFullIndex(j+1)] = temp;
+//        i = i + 1;
+//    }
+//}

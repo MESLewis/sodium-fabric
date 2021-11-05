@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import static org.lwjgl.opengl.GL15C.*;
 import static org.lwjgl.opengl.GL15C.glBindBuffer;
 import static org.lwjgl.opengl.GL30C.glBindBufferBase;
+import static org.lwjgl.opengl.GL33C.GL_TIME_ELAPSED;
 import static org.lwjgl.opengl.GL43C.GL_SHADER_STORAGE_BUFFER;
 import static org.lwjgl.opengl.GL43C.glDispatchCompute;
 
@@ -44,33 +45,40 @@ public class ComputeShaderInterface {
         subDataList.clear();
         int chunkCount = 0;
         PointerBuffer pointerBuffer = batch.getPointerBuffer();
+        IntBuffer countBuffer = batch.getCountBuffer();
         IntBuffer baseVertexBuffer = batch.getBaseVertexBuffer();
 
         int lastBaseVertexOffset = baseVertexBuffer.get(0);
         int subDataCount = 0;
         int totalSubDataCount = 0;
+        int subDataIndexCount = 0;
 
         int pointer;
         int baseVertex;
-        while(pointerBuffer.hasRemaining()) {
+        int count;
+        while(countBuffer.hasRemaining()) {
             pointer = (int) (pointerBuffer.get());
             baseVertex = baseVertexBuffer.get();
-
-            pointerList.add(pointer); //IndexOffset
+            count = countBuffer.get();
 
             if(baseVertex != lastBaseVertexOffset) {
                 lastBaseVertexOffset = baseVertex;
 
                 subDataList.add(totalSubDataCount);
                 subDataList.add(subDataCount);
+                subDataList.add(subDataIndexCount);
+                chunkCount++;
                 totalSubDataCount += subDataCount;
                 subDataCount = 0;
-                chunkCount++;
+                subDataIndexCount = 0;
             }
+            pointerList.add(pointer); //IndexOffset
+            subDataIndexCount += count;
             subDataCount++;
         }
         subDataList.add(totalSubDataCount);
         subDataList.add(subDataCount);
+        subDataList.add(subDataIndexCount);
         chunkCount++;
 
         int[] buf = new int[4];
@@ -97,7 +105,14 @@ public class ComputeShaderInterface {
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
+
+
+//        int query = glGenQueries();
+//        glBeginQuery(GL_TIME_ELAPSED, query);
         glDispatchCompute(chunkCount, 1, 1);
+//        glEndQuery(GL_TIME_ELAPSED);
+
+//        System.out.println(glGetQueryObjecti(query, GL_TIME_ELAPSED));
     }
 
     public void setModelViewMatrix(Matrix4f matrix) {
