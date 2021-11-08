@@ -109,6 +109,7 @@ public class ComputeShaderInterface {
 
 //        int query = glGenQueries();
 //        glBeginQuery(GL_TIME_ELAPSED, query);
+        //TODO set local size and handle sub data index count > 2048
         glDispatchCompute(chunkCount, 1, 1);
 //        glEndQuery(GL_TIME_ELAPSED);
 
