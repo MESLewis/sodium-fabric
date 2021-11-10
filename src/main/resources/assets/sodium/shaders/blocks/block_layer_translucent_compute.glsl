@@ -111,28 +111,23 @@ vec4 unpackPos(Packed p) {
     return vec4(x,y,z,w);
 }
 
-float getDistance(uint index) {
-    if(index == DUMMY_INDEX) {
+float getAverageDistance(IndexGroup indexGroup) {
+    if(indexGroup.i1 == DUMMY_INDEX) {
         return DUMMY_DISTANCE;
     }
     ChunkMultiDrawRange subInfo = chunkMultiDrawRange[u_ChunkNum];
     uint vOffset = vertexOffset[subInfo.DataOffset];
 
-    vec4 rawPosition = unpackPos(region_mesh[index + vOffset]);
+    vec4 rawPosition1 = unpackPos(region_mesh[indexGroup.i1 + vOffset]);
+    vec4 rawPosition2 = unpackPos(region_mesh[indexGroup.i2 + vOffset]);
+    vec4 rawPosition3 = unpackPos(region_mesh[indexGroup.i3 + vOffset]);
+    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3) / 3;
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
-    vec3 chunkOffset = Chunks[int(rawPosition.w)].Offset.xyz;
+    vec3 chunkOffset = Chunks[int(rawPosition1.w)].Offset.xyz;
     vec4 pos = u_ModelViewMatrix * vec4(chunkOffset + vertexPosition, 1.0);
 
     return length(pos);
-}
-
-float getAverageDistance(IndexGroup pair) {
-    //TODO Find best heuristic
-//    return min(getDistance(pair.i1), min(getDistance(pair.i2), getDistance(pair.i3)));
-    return (getDistance(pair.i1)
-    + getDistance(pair.i2)
-    + getDistance(pair.i3)) / 3;
 }
 
 //Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
