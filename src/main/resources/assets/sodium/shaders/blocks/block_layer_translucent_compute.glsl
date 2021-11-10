@@ -3,22 +3,11 @@
 #define DUMMY_INDEX 10000000
 #define DUMMY_DISTANCE -1000000
 
-
 //TODO set these at compile time
 #define LOCAL_BMS 0
 #define LOCAL_DISPERSE 1
 #define GLOBAL_FLIP 2
 #define GLOBAL_DISPERSE 3
-
-
-//TODO DEBUG
-//TODO Calculate this based on GPU specs
-#define LOCAL_SIZE_X 1024
-
-// Externally defined via shader compiler.
-//#ifndef LOCAL_SIZE_X
-//#define LOCAL_SIZE_X 1
-//#endif
 
 // Note that there exist hardware limits -
 // Look these up for your GPU via https://vulkan.gpuinfo.org/

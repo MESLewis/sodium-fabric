@@ -1,24 +1,25 @@
 package me.jellysquid.mods.sodium.client.render.chunk.shader;
 
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
-import me.jellysquid.mods.sodium.client.gl.shader.uniform.*;
+import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
+import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
+import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformInt;
+import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformMatrix4f;
 import me.jellysquid.mods.sodium.client.gl.util.MultiDrawBatch;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.region.RenderRegion;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.PointerBuffer;
+import org.lwjgl.opengl.GL30C;
 
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 
 import static org.lwjgl.opengl.GL15C.*;
-import static org.lwjgl.opengl.GL15C.glBindBuffer;
 import static org.lwjgl.opengl.GL30C.glBindBufferBase;
-import static org.lwjgl.opengl.GL33C.GL_TIME_ELAPSED;
 import static org.lwjgl.opengl.GL42C.GL_ALL_BARRIER_BITS;
 import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
-import static org.lwjgl.opengl.GL43C.GL_SHADER_STORAGE_BUFFER;
-import static org.lwjgl.opengl.GL43C.glDispatchCompute;
+import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
 
@@ -31,6 +32,7 @@ public class ComputeShaderInterface {
     private final GlUniformInt uniformSortHeight;
     private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
+    private final int maxComptuteWorkGroupSizeX;
 
     public ComputeShaderInterface(ShaderBindingContext context) {
         this.uniformModelViewMatrix = context.bindUniform("u_ModelViewMatrix", GlUniformMatrix4f::new);
@@ -41,6 +43,11 @@ public class ComputeShaderInterface {
         this.uniformSortHeight = context.bindUniform("u_SortHeight", GlUniformInt::new);
 
         this.uniformBlockDrawParameters = context.bindUniformBlock("ubo_DrawParameters", 0);
+
+
+        int[] maxComputeWorkGroupSize = new int[3];
+        GL30C.glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, maxComputeWorkGroupSize);
+        maxComptuteWorkGroupSizeX = maxComputeWorkGroupSize[0];
     }
 
     public void setup(ChunkVertexType vertexType) {
@@ -52,8 +59,6 @@ public class ComputeShaderInterface {
         pointerList.clear();
         subDataList.clear();
         int chunkCount = 0;
-        //TODO Set this based on gpu specs
-        int LOCAL_SIZE_X = 1024;
         PointerBuffer pointerBuffer = batch.getPointerBuffer();
         IntBuffer countBuffer = batch.getCountBuffer();
         IntBuffer baseVertexBuffer = batch.getBaseVertexBuffer();
@@ -124,8 +129,8 @@ public class ComputeShaderInterface {
         for(int i = 0; i < chunkCount; i++) {
             uniformChunkNum.setInt(i);
             int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count
-            int groups = (n / (LOCAL_SIZE_X * 2)) + 1;
-            int height = LOCAL_SIZE_X * 2;
+            int groups = (n / (maxComptuteWorkGroupSizeX * 2)) + 1;
+            int height = maxComptuteWorkGroupSizeX * 2;
 
             //Begin by running a normal BMS
             uniformExecutionType.setInt(LOCAL_BMS);
@@ -143,7 +148,7 @@ public class ComputeShaderInterface {
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 for(int halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
                     uniformSortHeight.set(halfHeight);
-                    if(halfHeight >= LOCAL_SIZE_X * 2)  {
+                    if(halfHeight >= maxComptuteWorkGroupSizeX * 2)  {
                         uniformExecutionType.set(GLOBAL_DISPERSE);
                         glDispatchCompute(groups, 1, 1);
                         glMemoryBarrier(GL_ALL_BARRIER_BITS);

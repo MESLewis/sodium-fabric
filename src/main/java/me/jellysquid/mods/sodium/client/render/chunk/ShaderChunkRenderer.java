@@ -3,19 +3,18 @@ package me.jellysquid.mods.sodium.client.render.chunk;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.attribute.GlVertexFormat;
-import me.jellysquid.mods.sodium.client.gl.shader.*;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
-import me.jellysquid.mods.sodium.client.gui.SodiumGameOptions;
+import me.jellysquid.mods.sodium.client.gl.shader.*;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.format.ChunkMeshAttribute;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.*;
-import net.minecraft.client.render.Shader;
 import net.minecraft.util.Identifier;
+import org.lwjgl.opengl.GL30C;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
+
+import static org.lwjgl.opengl.GL43C.GL_MAX_COMPUTE_WORK_GROUP_SIZE;
 
 public abstract class ShaderChunkRenderer implements ChunkRenderer {
     //Variable names that are hard coded in shader language.
@@ -43,13 +42,17 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
             this.programs.put(options, program = this.createShader("blocks/block_layer_opaque", options));
         }
 
-        if(options.pass().isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting) {
+        if (options.pass().isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting) {
             GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
 
-            if(compute == null) {
+            if (compute == null) {
                 //TODO verify various numbers to calculate best work group size
                 ShaderConstants.Builder constantBuilder = ShaderConstants.builder();
-//                constantBuilder.add(SHADER_VAR_LOCAL_SIZE_X, );
+
+                int[] maxComputeWorkGroupSize = new int[3];
+                GL30C.glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, maxComputeWorkGroupSize);
+                constantBuilder.add(SHADER_VAR_LOCAL_SIZE_X, "" + maxComputeWorkGroupSize[0]);
+
                 //Translucent passes use a compute shader for sorting
                 GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,
                         new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), constantBuilder.build());
@@ -57,8 +60,8 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
                 try {
                     this.computes.put(options,
                             compute = GlProgram.builder(new Identifier("sodium", "chunk_shader_compute"))
-                            .attachShader(shader)
-                            .link((_shader) -> new ComputeShaderInterface(_shader)));
+                                    .attachShader(shader)
+                                    .link(ComputeShaderInterface::new));
                 } finally {
                     shader.delete();
                 }
@@ -74,7 +77,7 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
 
         GlShader vertShader = ShaderLoader.loadShader(ShaderType.VERTEX,
                 new Identifier("sodium", path + ".vsh"), constants);
-        
+
         GlShader fragShader = ShaderLoader.loadShader(ShaderType.FRAGMENT,
                 new Identifier("sodium", path + ".fsh"), constants);
 
