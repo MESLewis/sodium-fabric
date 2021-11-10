@@ -1,18 +1,25 @@
 package me.jellysquid.mods.sodium.client.render.chunk;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.attribute.GlVertexFormat;
 import me.jellysquid.mods.sodium.client.gl.shader.*;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
+import me.jellysquid.mods.sodium.client.gui.SodiumGameOptions;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.format.ChunkMeshAttribute;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.*;
+import net.minecraft.client.render.Shader;
 import net.minecraft.util.Identifier;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public abstract class ShaderChunkRenderer implements ChunkRenderer {
+    //Variable names that are hard coded in shader language.
+    private final static String SHADER_VAR_LOCAL_SIZE_X = "LOCAL_SIZE_X";
     private final Map<ChunkShaderOptions, GlProgram<ChunkShaderInterface>> programs = new Object2ObjectOpenHashMap<>();
     private final Map<ChunkShaderOptions, GlProgram<ComputeShaderInterface>> computes = new Object2ObjectOpenHashMap<>();
 
@@ -36,19 +43,21 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
             this.programs.put(options, program = this.createShader("blocks/block_layer_opaque", options));
         }
 
-        if(options.pass().isTranslucent()) {
+        if(options.pass().isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting) {
             GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
 
             if(compute == null) {
+                //TODO verify various numbers to calculate best work group size
+                ShaderConstants.Builder constantBuilder = ShaderConstants.builder();
+//                constantBuilder.add(SHADER_VAR_LOCAL_SIZE_X, );
                 //Translucent passes use a compute shader for sorting
                 GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,
-                        new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), options.constants());
+                        new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), constantBuilder.build());
 
                 try {
                     this.computes.put(options,
                             compute = GlProgram.builder(new Identifier("sodium", "chunk_shader_compute"))
                             .attachShader(shader)
-                            //TODO bindings
                             .link((_shader) -> new ComputeShaderInterface(_shader)));
                 } finally {
                     shader.delete();

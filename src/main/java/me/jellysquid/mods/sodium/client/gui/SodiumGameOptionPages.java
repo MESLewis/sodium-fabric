@@ -292,6 +292,15 @@ public class SodiumGameOptionPages {
                         .setBinding((opts, value) -> opts.advanced.animateOnlyVisibleTextures = value, opts -> opts.advanced.animateOnlyVisibleTextures)
                         .build()
                 )
+                .add(OptionImpl.createBuilder(boolean.class, sodiumOpts)
+                        .setName(new TranslatableText("sodium.options.translucent_face_sorting.name"))
+                        .setTooltip(new TranslatableText("sodium.options.translucent_face_sorting.tooltip"))
+                        .setControl(TickBoxControl::new)
+                        .setImpact(OptionImpact.VARIES)
+                        .setBinding((opts, value) -> opts.advanced.useTranslucentFaceSorting = value, opts -> opts.advanced.useTranslucentFaceSorting)
+                        .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
+                        .build()
+                )
                 .build());
 
         groups.add(OptionGroup.createBuilder()
