@@ -55,6 +55,10 @@ public class ComputeShaderInterface {
         this.uniformModelOffset.setFloat(vertexType.getModelOffset());
     }
 
+    /**
+     * Executes the compute shader, using multiple calls to glDispatchCompute if
+     * the data set is too large to be sorted in one call.
+     */
     public void execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
         pointerList.clear();
         subDataList.clear();
@@ -158,7 +162,6 @@ public class ComputeShaderInterface {
                         glMemoryBarrier(GL_ALL_BARRIER_BITS);
                         break;
                     }
-
                 }
             }
         }
