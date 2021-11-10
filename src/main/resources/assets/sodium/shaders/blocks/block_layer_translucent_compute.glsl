@@ -1,4 +1,7 @@
-#version 430
+#version 400 core
+
+#extension GL_ARB_shader_storage_buffer_object : require
+#extension GL_ARB_compute_shader : require
 
 #define DUMMY_INDEX 10000000
 #define DUMMY_DISTANCE -1000000
@@ -10,7 +13,7 @@
 #define GLOBAL_DISPERSE 3
 
 // Note that there exist hardware limits -
-// Look these up for your GPU via https://vulkan.gpuinfo.org/
+// Look these up for your GPU via https://opengl.gpuinfo.org/
 //
 // sizeof(local_value[LOCAL_SIZE_X]) : Must be <= maxComputeSharedMemorySize
 // LOCAL_SIZE_X/2  		             : Must be <= maxComputeWorkGroupInvocations
