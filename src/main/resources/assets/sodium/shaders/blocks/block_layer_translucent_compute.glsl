@@ -60,11 +60,11 @@ struct ChunkMultiDrawRange {
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
-uniform uint u_IndexOffsetStride = 12; //Number of bits referenced per array entry
-uniform uint u_IndexLengthStride = 3; //Number of vertices referenced per array entry
-uniform uint u_ExecutionType;
-uniform uint u_ChunkNum;
-uniform uint u_SortHeight;
+uniform int u_IndexOffsetStride = 12; //Number of bits referenced per array entry
+uniform int u_IndexLengthStride = 3; //Number of vertices referenced per array entry
+uniform int u_ExecutionType;
+uniform int u_ChunkNum;
+uniform int u_SortHeight;
 
 
 layout(std140, binding = 0) uniform ubo_DrawParameters {
@@ -155,9 +155,7 @@ uint getFullIndex(uint index) {
         index = index - getIndexLength(data);
         i = i + 1;
     }
-    //TODO DEBUG
-//    return DUMMY_INDEX;
-    return index;
+    return DUMMY_INDEX;
 }
 
 
@@ -218,19 +216,15 @@ void global_compare_and_swap(uvec2 idx){
     float distance1 = getAverageDistance(region_index_groups[i1]);
     float distance2 = getAverageDistance(region_index_groups[i2]);
 
+    if(i1 == DUMMY_INDEX || i2 == DUMMY_INDEX) {
+        return;
+    }
+
     if (distance1 < distance2) {
         IndexGroup tmp = region_index_groups[i1];
         region_index_groups[i1] = region_index_groups[i2];
         region_index_groups[i2] = tmp;
     }
-
-    //TODO DEBUG
-    region_index_groups[i1].i1 = 1;
-    region_index_groups[i1].i2 = 1;
-    region_index_groups[i1].i3 = 1;
-    region_index_groups[i2].i1 = 1;
-    region_index_groups[i2].i2 = 1;
-    region_index_groups[i2].i3 = 1;
 }
 
 // Performs full-height flip (h height) in buffer
@@ -270,11 +264,11 @@ void main(){
         float distance2 = getAverageDistance(rig2);
 
         if (fullIndex1 == DUMMY_INDEX) {
-            rig1 = IndexGroup(0, 0, 0);
+            rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
             distance1 = DUMMY_DISTANCE;
         }
         if (fullIndex2 == DUMMY_INDEX) {
-            rig2 = IndexGroup(0, 0, 0);
+            rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
             distance2 = DUMMY_DISTANCE;
         }
 
@@ -310,31 +304,3 @@ void main(){
         global_disperse(u_SortHeight);
     }
 }
-
-
-
-//void main() {
-//    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[gl_WorkGroupID.x];
-//    //TODO DEBUG
-//    uint max = min(subInfo.DataIndexCount / u_IndexLengthStride, 1000);
-////    uint max = subInfo.DataIndexCount / u_IndexLengthStride;
-//
-//
-//    //TODO Parallelize sort
-//    //https://poniesandlight.co.uk/reflect/bitonic_merge_sort/
-//
-//    //Insertion sort of indicies based on vertex
-//    int i = 1;
-//
-//    while(i < max) {
-//        IndexGroup temp = region_index_groups[getFullIndex(i)];
-//        float tempDist = getAverageDistance(temp);
-//        int j = i - 1;
-//        while(j >= 0 && getAverageDistance(region_index_groups[getFullIndex(j)]) < tempDist) {
-//            region_index_groups[getFullIndex(j+1)] = region_index_groups[getFullIndex(j)];
-//            j = j - 1;
-//        }
-//        region_index_groups[getFullIndex(j+1)] = temp;
-//        i = i + 1;
-//    }
-//}

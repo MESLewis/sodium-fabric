@@ -117,19 +117,13 @@ public class ComputeShaderInterface {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 
-//        int query = glGenQueries();
-//        glBeginQuery(GL_TIME_ELAPSED, query);
-        //TODO Need to split multiple invocations to ensure order of operations
-        //TODO Not sure performance implications of invocations that are unneeded
-        //TODO I can group < 2048 and > 2048
-        //TODO global_[flip|disperse] is slow, use local when possible.
         int LOCAL_BMS = 0;
         int LOCAL_DISPERSE = 1;
         int GLOBAL_FLIP = 2;
         int GLOBAL_DISPERSE = 3;
         for(int i = 0; i < chunkCount; i++) {
             uniformChunkNum.setInt(i);
-            int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count TODO verify
+            int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count
             int groups = (n / (LOCAL_SIZE_X * 2)) + 1;
             int height = LOCAL_SIZE_X * 2;
 
@@ -138,10 +132,6 @@ public class ComputeShaderInterface {
             uniformSortHeight.setInt(height);
             glDispatchCompute(groups, 1, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-            //TODO run render doc and figure out whats actually happening?
-            //TODO REEEEEEEE I don't know why globabl_[flip|disperse] doesnt' do anything
-            //TODO on that note I don't know if local_[flip|disperse] are working either. I don't think they are.
 
             height *= 2;
 
@@ -153,24 +143,20 @@ public class ComputeShaderInterface {
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 for(int halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
                     uniformSortHeight.set(halfHeight);
-                    //TODO DEBUG
-//                    if(halfHeight > LOCAL_SIZE_X * 2)  {
+                    if(halfHeight >= LOCAL_SIZE_X * 2)  {
                         uniformExecutionType.set(GLOBAL_DISPERSE);
                         glDispatchCompute(groups, 1, 1);
                         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-//                    } else {
-//                        uniformExecutionType.setInt(LOCAL_DISPERSE);
-//                        glDispatchCompute(groups, 1, 1);
-//                        glMemoryBarrier(GL_ALL_BARRIER_BITS);
-//                        break;
-//                    }
+                    } else {
+                        uniformExecutionType.setInt(LOCAL_DISPERSE);
+                        glDispatchCompute(groups, 1, 1);
+                        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+                        break;
+                    }
 
                 }
             }
         }
-//        glEndQuery(GL_TIME_ELAPSED);
-
-//        System.out.println(glGetQueryObjecti(query, GL_TIME_ELAPSED));
     }
 
     public void setModelViewMatrix(Matrix4f matrix) {
