@@ -1,5 +1,6 @@
 package me.jellysquid.mods.sodium.client.render.chunk.shader;
 
+import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
@@ -23,6 +24,7 @@ import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
 
+    private static final boolean TIMING = true;
     private final GlUniformMatrix4f uniformModelViewMatrix;
     private final GlUniformBlock uniformBlockDrawParameters;
     private final GlUniformFloat uniformModelScale;
@@ -33,6 +35,11 @@ public class ComputeShaderInterface {
     private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
     private final int maxComptuteWorkGroupSizeX;
+
+    private int[] queries = new int[2];
+    private int currentQueryIndex = 0;
+    private int[] times = new int[100];
+    private int currentTimeIndex = 0;
 
     public ComputeShaderInterface(ShaderBindingContext context) {
         this.uniformModelViewMatrix = context.bindUniform("u_ModelViewMatrix", GlUniformMatrix4f::new);
@@ -48,6 +55,10 @@ public class ComputeShaderInterface {
         int[] maxComputeWorkGroupSize = new int[3];
         GL30C.glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, maxComputeWorkGroupSize);
         maxComptuteWorkGroupSizeX = maxComputeWorkGroupSize[0];
+
+        if(TIMING) {
+            glGenQueries(queries);
+        }
     }
 
     public void setup(ChunkVertexType vertexType) {
@@ -60,6 +71,10 @@ public class ComputeShaderInterface {
      * the data set is too large to be sorted in one call.
      */
     public void execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
+        if(TIMING) {
+            glBeginQuery(GL_TIME_ELAPSED, queries[currentQueryIndex]);
+        }
+
         pointerList.clear();
         subDataList.clear();
         int chunkCount = 0;
@@ -139,6 +154,7 @@ public class ComputeShaderInterface {
             //Begin by running a normal BMS
             uniformExecutionType.setInt(LOCAL_BMS);
             uniformSortHeight.setInt(height);
+            //TODO batch more calls here, especially for small n.
             glDispatchCompute(groups, 1, 1);
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
@@ -163,6 +179,21 @@ public class ComputeShaderInterface {
                         break;
                     }
                 }
+            }
+        }
+
+        if(TIMING) {
+            glEndQuery(GL_TIME_ELAPSED);
+            currentQueryIndex = (currentQueryIndex + 1) % 2;
+            //Query last frame's index so we don't slow down waiting for this frames query to finish
+            times[currentTimeIndex] = glGetQueryObjecti(queries[currentQueryIndex], GL_QUERY_RESULT);
+            currentTimeIndex = (currentTimeIndex + 1) % 100;
+            if(currentTimeIndex == 0) {
+                int totalTime = 0;
+                for(int i : times) {
+                    totalTime += i;
+                }
+                SodiumClientMod.logger().warn("Compute shader time: " + totalTime / times.length);
             }
         }
     }
