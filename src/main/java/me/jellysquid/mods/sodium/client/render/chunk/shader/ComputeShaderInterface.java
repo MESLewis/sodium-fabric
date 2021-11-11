@@ -145,18 +145,26 @@ public class ComputeShaderInterface {
         int LOCAL_DISPERSE = 1;
         int GLOBAL_FLIP = 2;
         int GLOBAL_DISPERSE = 3;
+
+        int height = maxComptuteWorkGroupSizeX * 2;
+        //Begin by running a normal bitonic sort on all chunks.
+        //For chunks whose translucent verticies are < maxComputeWorkGroupSizeX * 3 this
+        //is the only work that needs to be done.
+        uniformExecutionType.setInt(LOCAL_BMS);
+        uniformSortHeight.setInt(height);
+        glDispatchCompute(1, chunkCount, 1);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
         for(int i = 0; i < chunkCount; i++) {
             uniformChunkNum.setInt(i);
             int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count
             int groups = (n / (maxComptuteWorkGroupSizeX * 2)) + 1;
-            int height = maxComptuteWorkGroupSizeX * 2;
+            height = maxComptuteWorkGroupSizeX * 2;
 
-            //Begin by running a normal BMS
-            uniformExecutionType.setInt(LOCAL_BMS);
-            uniformSortHeight.setInt(height);
-            //TODO batch more calls here, especially for small n.
-            glDispatchCompute(groups, 1, 1);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            if(groups > 1) {
+                glDispatchCompute(groups, 1, 1);
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            }
 
             height *= 2;
 

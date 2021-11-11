@@ -103,6 +103,15 @@ uint getIndexLength(uint i) {
     return indexLength[i] / u_IndexLengthStride;
 }
 
+//If multiple y groups are used ignore the u_ChunkNum uniform and use gl_WorkGroupID.y instead
+ChunkMultiDrawRange getSubInfo() {
+    if(gl_NumWorkGroups.y == 1) {
+        return chunkMultiDrawRange[u_ChunkNum];
+    } else {
+        return chunkMultiDrawRange[gl_WorkGroupID.y];
+    }
+}
+
 vec4 unpackPos(Packed p) {
     uint x = p.a_Pos1 & uint(0xFFFF);
     uint y = (p.a_Pos1 >> 16);
@@ -115,7 +124,7 @@ float getAverageDistance(IndexGroup indexGroup) {
     if(indexGroup.i1 == DUMMY_INDEX) {
         return DUMMY_DISTANCE;
     }
-    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[u_ChunkNum];
+    ChunkMultiDrawRange subInfo = getSubInfo();
     uint vOffset = vertexOffset[subInfo.DataOffset];
 
     vec4 rawPosition1 = unpackPos(region_mesh[indexGroup.i1 + vOffset]);
@@ -132,7 +141,7 @@ float getAverageDistance(IndexGroup indexGroup) {
 
 //Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
 uint getFullIndex(uint index) {
-    ChunkMultiDrawRange subInfo = chunkMultiDrawRange[u_ChunkNum];
+    ChunkMultiDrawRange subInfo = getSubInfo();
     uint i = 0;
     while(i < subInfo.DataCount) {
         uint data = subInfo.DataOffset + i;
