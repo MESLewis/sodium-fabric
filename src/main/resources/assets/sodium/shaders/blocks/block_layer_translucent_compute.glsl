@@ -295,6 +295,14 @@ void local_main(uint executionType, uint height) {
 // Perform binary merge sort for local elements, up to a maximum number of elements h.
 void global_bms(){
     uint height = gl_WorkGroupSize.x * 2;
+    uint indexLength = getIndexLength(getSubInfo().DataOffset);
+    uint computeSize = uint(pow(2, ceil(log(indexLength / 2)/log(2))));
+    uint usedWorkgroups = (computeSize / (gl_WorkGroupSize.x * 2)) + 1;
+
+    //Exit early for unneeded work groups
+    if(gl_WorkGroupID.x > usedWorkgroups) {
+        return;
+    }
 
     local_main(LOCAL_BMS, height);
     memoryBarrierBuffer();
@@ -302,20 +310,17 @@ void global_bms(){
 
     height *= 2;
 
-    uint indexLength = getIndexLength(getSubInfo().DataOffset);
-    uint computeSize = uint(pow(2, ceil(log(indexLength / 2)/log(2))));
-
     for(; height <= computeSize; height *= 2) {
         global_flip(height);
         for(uint halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
             memoryBarrierBuffer();
             barrier();
-            if(halfHeight >= gl_WorkGroupSize.x * 2) {
+//            if(halfHeight >= gl_WorkGroupSize.x * 2) {
                 global_disperse(halfHeight);
-            } else {
-                local_main(LOCAL_DISPERSE, halfHeight);
-                break;
-            }
+//            } else {
+//                local_main(LOCAL_DISPERSE, halfHeight);
+//                break;
+//            }
         }
     }
 }

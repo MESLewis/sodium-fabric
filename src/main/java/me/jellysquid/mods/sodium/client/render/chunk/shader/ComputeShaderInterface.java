@@ -155,6 +155,7 @@ public class ComputeShaderInterface {
         int GLOBAL_BMS = 4;
         uniformExecutionType.setInt(GLOBAL_BMS);
         int groups = (largestIndexCount / (maxComptuteWorkGroupSizeX * 2)) + 1;
+//        glDispatchCompute(1, chunkCount, 1);
         glDispatchCompute(groups, chunkCount, 1);
 
             /*
