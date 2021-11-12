@@ -16,6 +16,9 @@ import org.lwjgl.opengl.GL30C;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 
+import static java.lang.Math.log;
+import static java.lang.Math.pow;
+import static net.minecraft.util.math.MathHelper.ceil;
 import static org.lwjgl.opengl.GL15C.*;
 import static org.lwjgl.opengl.GL30C.glBindBufferBase;
 import static org.lwjgl.opengl.GL43C.*;
@@ -30,7 +33,6 @@ public class ComputeShaderInterface {
     private final GlUniformFloat uniformModelScale;
     private final GlUniformFloat uniformModelOffset;
     private final GlUniformInt uniformExecutionType;
-    private final GlUniformInt uniformChunkNum;
     private final GlUniformInt uniformSortHeight;
     private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
@@ -46,7 +48,6 @@ public class ComputeShaderInterface {
         this.uniformModelScale = context.bindUniform("u_ModelScale", GlUniformFloat::new);
         this.uniformModelOffset = context.bindUniform("u_ModelOffset", GlUniformFloat::new);
         this.uniformExecutionType = context.bindUniform("u_ExecutionType", GlUniformInt::new);
-        this.uniformChunkNum = context.bindUniform("u_ChunkNum", GlUniformInt::new);
         this.uniformSortHeight = context.bindUniform("u_SortHeight", GlUniformInt::new);
 
         this.uniformBlockDrawParameters = context.bindUniformBlock("ubo_DrawParameters", 0);
@@ -152,59 +153,42 @@ public class ComputeShaderInterface {
         int LOCAL_DISPERSE = 1;
         int GLOBAL_FLIP = 2;
         int GLOBAL_DISPERSE = 3;
-        int GLOBAL_BMS = 4;
-        uniformExecutionType.setInt(GLOBAL_BMS);
-        int groups = (largestIndexCount / (maxComptuteWorkGroupSizeX * 2)) + 1;
-//        glDispatchCompute(1, chunkCount, 1);
-        glDispatchCompute(groups, chunkCount, 1);
 
-            /*
+
+        int maxHeight = (int) pow(2, ceil(log(largestIndexCount / 3)/log(2)));
+        int groups = (maxHeight / (maxComptuteWorkGroupSizeX * 2)) + 1;
         int height = maxComptuteWorkGroupSizeX * 2;
+
         //Begin by running a normal bitonic sort on all chunks.
         //For chunks whose translucent verticies are < maxComputeWorkGroupSizeX * 3 this
         //is the only work that needs to be done.
-        uniformExecutionType.setInt(LOCAL_BMS);
         uniformSortHeight.setInt(height);
-        glDispatchCompute(1, chunkCount, 1);
+        uniformExecutionType.setInt(LOCAL_BMS);
+        glDispatchCompute(groups, chunkCount, 1);
         glMemoryBarrier(MEMORY_BARRIERS);
-        glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-        //TODO More batching can be done here, unsure how often a real world hits this branch
-        for(int i = 0; i < chunkCount; i++) {
-            uniformChunkNum.setInt(i);
-            int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count
-            groups = (n / (maxComptuteWorkGroupSizeX * 2)) + 1;
-            height = maxComptuteWorkGroupSizeX * 2;
+        height *= 2;
 
-            if(groups > 1) {
-                glDispatchCompute(groups, 1, 1);
-                glMemoryBarrier(MEMORY_BARRIERS);
-            }
-
-            height *= 2;
-
-            //Keep getting height bigger until we cover all of n
-            for(; height <= n; height *= 2) {
-                uniformExecutionType.set(GLOBAL_FLIP);
-                uniformSortHeight.set(height);
-                glDispatchCompute(groups, 1, 1);
-                glMemoryBarrier(MEMORY_BARRIERS);
-                for(int halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
-                    uniformSortHeight.set(halfHeight);
-                    if(halfHeight >= maxComptuteWorkGroupSizeX * 2)  {
-                        uniformExecutionType.set(GLOBAL_DISPERSE);
-                        glDispatchCompute(groups, 1, 1);
-                        glMemoryBarrier(MEMORY_BARRIERS);
-                    } else {
-                        uniformExecutionType.setInt(LOCAL_DISPERSE);
-                        glDispatchCompute(groups, 1, 1);
-                        glMemoryBarrier(MEMORY_BARRIERS);
-                        break;
-                    }
+        //Keep getting height bigger until we cover all of n
+        for(; height <= maxHeight; height *= 2) {
+            uniformExecutionType.set(GLOBAL_FLIP);
+            uniformSortHeight.set(height);
+            glDispatchCompute(groups, chunkCount, 1);
+            glMemoryBarrier(MEMORY_BARRIERS);
+            for(int halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
+                uniformSortHeight.set(halfHeight);
+                if(halfHeight >= maxComptuteWorkGroupSizeX * 2)  {
+                    uniformExecutionType.set(GLOBAL_DISPERSE);
+                    glDispatchCompute(groups, chunkCount, 1);
+                    glMemoryBarrier(MEMORY_BARRIERS);
+                } else {
+                    uniformExecutionType.setInt(LOCAL_DISPERSE);
+                    glDispatchCompute(groups, chunkCount, 1);
+                    glMemoryBarrier(MEMORY_BARRIERS);
+                    break;
                 }
             }
         }
-        */
 
         if(TIMING) {
             glEndQuery(GL_TIME_ELAPSED);
