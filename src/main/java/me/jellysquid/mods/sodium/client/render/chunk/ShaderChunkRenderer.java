@@ -10,15 +10,10 @@ import me.jellysquid.mods.sodium.client.render.chunk.format.ChunkMeshAttribute;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.*;
 import net.minecraft.util.Identifier;
-import org.lwjgl.opengl.GL30C;
 
 import java.util.Map;
 
-import static org.lwjgl.opengl.GL43C.GL_MAX_COMPUTE_WORK_GROUP_SIZE;
-
 public abstract class ShaderChunkRenderer implements ChunkRenderer {
-    //Variable names that are hard coded in shader language.
-    private final static String SHADER_VAR_LOCAL_SIZE_X = "LOCAL_SIZE_X";
     private final Map<ChunkShaderOptions, GlProgram<ChunkShaderInterface>> programs = new Object2ObjectOpenHashMap<>();
     private final Map<ChunkShaderOptions, GlProgram<ComputeShaderInterface>> computes = new Object2ObjectOpenHashMap<>();
 
@@ -46,12 +41,7 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
             GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
 
             if (compute == null) {
-                //TODO verify various numbers to calculate best work group size
                 ShaderConstants.Builder constantBuilder = ShaderConstants.builder();
-
-                int[] maxComputeWorkGroupSize = new int[3];
-                GL30C.glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, maxComputeWorkGroupSize);
-                constantBuilder.add(SHADER_VAR_LOCAL_SIZE_X, "" + maxComputeWorkGroupSize[0]);
 
                 //Translucent passes use a compute shader for sorting
                 GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,

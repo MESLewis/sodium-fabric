@@ -5,6 +5,7 @@
 
 #define DUMMY_INDEX 10000000
 #define DUMMY_DISTANCE -1000000
+#define LOCAL_SIZE_X 1024
 
 //TODO set these at compile time
 #define LOCAL_BMS 0
@@ -12,11 +13,6 @@
 #define GLOBAL_FLIP 2
 #define GLOBAL_DISPERSE 3
 
-// Note that there exist hardware limits -
-// Look these up for your GPU via https://opengl.gpuinfo.org/
-//
-// sizeof(local_value[LOCAL_SIZE_X]) : Must be <= maxComputeSharedMemorySize
-// LOCAL_SIZE_X/2  		             : Must be <= maxComputeWorkGroupInvocations
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 

@@ -11,7 +11,6 @@ import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.region.RenderRegion;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.PointerBuffer;
-import org.lwjgl.opengl.GL30C;
 
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -28,6 +27,8 @@ public class ComputeShaderInterface {
     private static final boolean TIMING = true;
     //TODO are any memory barriers needed?
     private static final int MEMORY_BARRIERS = GL_BUFFER_UPDATE_BARRIER_BIT;
+    //1024 is the minimum. Some cards support 2048 but then we might run into memory issues
+    private static final int computeWorkGroupSizeX = 1024;
     private final GlUniformMatrix4f uniformModelViewMatrix;
     private final GlUniformBlock uniformBlockDrawParameters;
     private final GlUniformFloat uniformModelScale;
@@ -36,7 +37,6 @@ public class ComputeShaderInterface {
     private final GlUniformInt uniformSortHeight;
     private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
-    private final int maxComptuteWorkGroupSizeX;
 
     private int[] queries = new int[2];
     private int currentQueryIndex = 0;
@@ -51,11 +51,6 @@ public class ComputeShaderInterface {
         this.uniformSortHeight = context.bindUniform("u_SortHeight", GlUniformInt::new);
 
         this.uniformBlockDrawParameters = context.bindUniformBlock("ubo_DrawParameters", 0);
-
-
-        int[] maxComputeWorkGroupSize = new int[3];
-        GL30C.glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, maxComputeWorkGroupSize);
-        maxComptuteWorkGroupSizeX = maxComputeWorkGroupSize[0];
 
         if(TIMING) {
             glGenQueries(queries);
@@ -156,8 +151,8 @@ public class ComputeShaderInterface {
 
 
         int maxHeight = (int) pow(2, ceil(log(largestIndexCount / 3)/log(2)));
-        int groups = (maxHeight / (maxComptuteWorkGroupSizeX * 2)) + 1;
-        int height = maxComptuteWorkGroupSizeX * 2;
+        int groups = (maxHeight / (computeWorkGroupSizeX * 2)) + 1;
+        int height = computeWorkGroupSizeX * 2;
 
         //Begin by running a normal bitonic sort on all chunks.
         //For chunks whose translucent verticies are < maxComputeWorkGroupSizeX * 3 this
@@ -177,7 +172,7 @@ public class ComputeShaderInterface {
             glMemoryBarrier(MEMORY_BARRIERS);
             for(int halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
                 uniformSortHeight.set(halfHeight);
-                if(halfHeight >= maxComptuteWorkGroupSizeX * 2)  {
+                if(halfHeight >= computeWorkGroupSizeX * 2)  {
                     uniformExecutionType.set(GLOBAL_DISPERSE);
                     glDispatchCompute(groups, chunkCount, 1);
                     glMemoryBarrier(MEMORY_BARRIERS);
