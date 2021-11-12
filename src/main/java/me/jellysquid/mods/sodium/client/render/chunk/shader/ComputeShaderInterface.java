@@ -18,7 +18,6 @@ import java.util.ArrayList;
 
 import static org.lwjgl.opengl.GL15C.*;
 import static org.lwjgl.opengl.GL30C.glBindBufferBase;
-import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
 import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
@@ -91,6 +90,7 @@ public class ComputeShaderInterface {
         int pointer;
         int baseVertex;
         int count;
+        int largestIndexCount = 0;
         while(countBuffer.hasRemaining()) {
             pointer = (int) (pointerBuffer.get());
             baseVertex = baseVertexBuffer.get();
@@ -102,6 +102,9 @@ public class ComputeShaderInterface {
                 subDataList.add(totalSubDataCount);
                 subDataList.add(subDataCount);
                 subDataList.add(subDataIndexCount);
+                if(subDataIndexCount > largestIndexCount) {
+                    largestIndexCount = subDataIndexCount;
+                }
                 chunkCount++;
                 totalSubDataCount += subDataCount;
                 subDataCount = 0;
@@ -114,6 +117,9 @@ public class ComputeShaderInterface {
         subDataList.add(totalSubDataCount);
         subDataList.add(subDataCount);
         subDataList.add(subDataIndexCount);
+        if(subDataIndexCount > largestIndexCount) {
+            largestIndexCount = subDataIndexCount;
+        }
         chunkCount++;
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
@@ -146,7 +152,12 @@ public class ComputeShaderInterface {
         int LOCAL_DISPERSE = 1;
         int GLOBAL_FLIP = 2;
         int GLOBAL_DISPERSE = 3;
+        int GLOBAL_BMS = 4;
+        uniformExecutionType.setInt(GLOBAL_BMS);
+        int groups = (largestIndexCount / (maxComptuteWorkGroupSizeX * 2)) + 1;
+        glDispatchCompute(groups, chunkCount, 1);
 
+            /*
         int height = maxComptuteWorkGroupSizeX * 2;
         //Begin by running a normal bitonic sort on all chunks.
         //For chunks whose translucent verticies are < maxComputeWorkGroupSizeX * 3 this
@@ -155,12 +166,13 @@ public class ComputeShaderInterface {
         uniformSortHeight.setInt(height);
         glDispatchCompute(1, chunkCount, 1);
         glMemoryBarrier(MEMORY_BARRIERS);
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
         //TODO More batching can be done here, unsure how often a real world hits this branch
         for(int i = 0; i < chunkCount; i++) {
             uniformChunkNum.setInt(i);
             int n = subDataList.get(i*3+2) / 3; //subDataList has indicy count but we want tri count
-            int groups = (n / (maxComptuteWorkGroupSizeX * 2)) + 1;
+            groups = (n / (maxComptuteWorkGroupSizeX * 2)) + 1;
             height = maxComptuteWorkGroupSizeX * 2;
 
             if(groups > 1) {
@@ -191,6 +203,7 @@ public class ComputeShaderInterface {
                 }
             }
         }
+        */
 
         if(TIMING) {
             glEndQuery(GL_TIME_ELAPSED);

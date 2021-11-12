@@ -68,7 +68,7 @@ layout(std430, binding = 1) restrict readonly buffer region_mesh_buffer {
     Packed region_mesh[];
 };
 
-layout(std430, binding = 2) restrict coherent buffer region_index_buffer {
+layout(std430, binding = 2) coherent buffer region_index_buffer {
     IndexGroup region_index_groups[];
 };
 
@@ -298,13 +298,18 @@ void global_bms(){
 
     local_main(LOCAL_BMS, height);
     memoryBarrierBuffer();
+    barrier();
 
     height *= 2;
 
-    for(; height <= getIndexLength(getSubInfo().DataOffset); height *= 2) {
+    uint indexLength = getIndexLength(getSubInfo().DataOffset);
+    uint computeSize = uint(pow(2, ceil(log(indexLength / 2)/log(2))));
+
+    for(; height <= computeSize; height *= 2) {
         global_flip(height);
         for(uint halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
             memoryBarrierBuffer();
+            barrier();
             if(halfHeight >= gl_WorkGroupSize.x * 2) {
                 global_disperse(halfHeight);
             } else {
