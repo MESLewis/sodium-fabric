@@ -11,6 +11,7 @@
 #define LOCAL_DISPERSE 1
 #define GLOBAL_FLIP 2
 #define GLOBAL_DISPERSE 3
+#define GLOBAL_BMS 4
 
 // Note that there exist hardware limits -
 // Look these up for your GPU via https://opengl.gpuinfo.org/
@@ -63,27 +64,27 @@ layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
-layout(std430, binding = 1) readonly buffer region_mesh_buffer {
+layout(std430, binding = 1) restrict readonly buffer region_mesh_buffer {
     Packed region_mesh[];
 };
 
-layout(std430, binding = 2) buffer region_index_buffer {
+layout(std430, binding = 2) restrict coherent buffer region_index_buffer {
     IndexGroup region_index_groups[];
 };
 
-layout(std430, binding = 3) readonly buffer chunk_sub_count {
+layout(std430, binding = 3) restrict readonly buffer chunk_sub_count {
     ChunkMultiDrawRange chunkMultiDrawRange[];
 };
 
-layout(std430, binding = 4) readonly buffer index_offset_buffer {
+layout(std430, binding = 4) restrict readonly buffer index_offset_buffer {
     int indexOffset[];
 };
 
-layout(std430, binding = 5) readonly buffer index_length_buffer {
+layout(std430, binding = 5) restrict readonly buffer index_length_buffer {
     int indexLength[];
 };
 
-layout(std430, binding = 6) readonly buffer vertex_offset_buffer {
+layout(std430, binding = 6) restrict readonly buffer vertex_offset_buffer {
     int vertexOffset[];
 };
 
@@ -246,51 +247,77 @@ void global_disperse(uint h){
     global_compare_and_swap(uvec2(x,y));
 }
 
+void local_main(uint executionType, uint height) {
+    uint t = gl_LocalInvocationID.x;
+    uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
+
+    uint fullIndex1 = getFullIndex(offset+t*2);
+    uint fullIndex2 = getFullIndex(offset+t*2+1);
+    IndexGroup rig1 = region_index_groups[fullIndex1];
+    IndexGroup rig2 = region_index_groups[fullIndex2];
+    float distance1 = getAverageDistance(rig1);
+    float distance2 = getAverageDistance(rig2);
+
+    if (fullIndex1 == DUMMY_INDEX) {
+        rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
+        distance1 = DUMMY_DISTANCE;
+    }
+    if (fullIndex2 == DUMMY_INDEX) {
+        rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
+        distance2 = DUMMY_DISTANCE;
+    }
+
+    // Each local worker must save two elements to local memory, as there
+    // are twice as many elments as workers.
+    local_value[t*2]   = IndexDistancePair(rig1, distance1);
+    local_value[t*2+1] = IndexDistancePair(rig2, distance2);
+
+    if (executionType == LOCAL_BMS) {
+        local_bms(height);
+    }
+    if (executionType == LOCAL_DISPERSE) {
+        local_disperse(height);
+    }
+
+    barrier();
+    //Write local memory back to buffer
+    IndexGroup ig1 = local_value[t*2].indexGroup;
+    IndexGroup ig2 = local_value[t*2+1].indexGroup;
+
+    if (fullIndex1 != DUMMY_INDEX) {
+        region_index_groups[fullIndex1] = ig1;
+    }
+    if (fullIndex2 != DUMMY_INDEX) {
+        region_index_groups[fullIndex2] = ig2;
+    }
+}
+
+// Perform binary merge sort for local elements, up to a maximum number of elements h.
+void global_bms(){
+    uint height = gl_WorkGroupSize.x * 2;
+
+    local_main(LOCAL_BMS, height);
+    memoryBarrierBuffer();
+
+    height *= 2;
+
+    for(; height <= getIndexLength(getSubInfo().DataOffset); height *= 2) {
+        global_flip(height);
+        for(uint halfHeight = height / 2; halfHeight > 1; halfHeight /= 2) {
+            memoryBarrierBuffer();
+            if(halfHeight >= gl_WorkGroupSize.x * 2) {
+                global_disperse(halfHeight);
+            } else {
+                local_main(LOCAL_DISPERSE, halfHeight);
+                break;
+            }
+        }
+    }
+}
+
 void main(){
-
     if(u_ExecutionType == LOCAL_BMS || u_ExecutionType == LOCAL_DISPERSE) {
-        uint t = gl_LocalInvocationID.x;
-        uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
-
-        uint fullIndex1 = getFullIndex(offset+t*2);
-        uint fullIndex2 = getFullIndex(offset+t*2+1);
-        IndexGroup rig1 = region_index_groups[fullIndex1];
-        IndexGroup rig2 = region_index_groups[fullIndex2];
-        float distance1 = getAverageDistance(rig1);
-        float distance2 = getAverageDistance(rig2);
-
-        if (fullIndex1 == DUMMY_INDEX) {
-            rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
-            distance1 = DUMMY_DISTANCE;
-        }
-        if (fullIndex2 == DUMMY_INDEX) {
-            rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
-            distance2 = DUMMY_DISTANCE;
-        }
-
-        // Each local worker must save two elements to local memory, as there
-        // are twice as many elments as workers.
-        local_value[t*2]   = IndexDistancePair(rig1, distance1);
-        local_value[t*2+1] = IndexDistancePair(rig2, distance2);
-
-        if (u_ExecutionType == LOCAL_BMS) {
-            local_bms(u_SortHeight);
-        }
-        if (u_ExecutionType == LOCAL_DISPERSE) {
-            local_disperse(u_SortHeight);
-        }
-
-        barrier();
-        //Write local memory back to buffer
-        IndexGroup ig1 = local_value[t*2].indexGroup;
-        IndexGroup ig2 = local_value[t*2+1].indexGroup;
-
-        if (fullIndex1 != DUMMY_INDEX) {
-            region_index_groups[fullIndex1] = ig1;
-        }
-        if (fullIndex2 != DUMMY_INDEX) {
-            region_index_groups[fullIndex2] = ig2;
-        }
+        local_main(u_ExecutionType, u_SortHeight);
     }
 
     if(u_ExecutionType == GLOBAL_FLIP) {
@@ -298,5 +325,8 @@ void main(){
     }
     if(u_ExecutionType == GLOBAL_DISPERSE) {
         global_disperse(u_SortHeight);
+    }
+    if(u_ExecutionType == GLOBAL_BMS) {
+        global_bms();
     }
 }
