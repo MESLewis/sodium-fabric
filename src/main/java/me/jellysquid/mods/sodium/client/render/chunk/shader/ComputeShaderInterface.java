@@ -1,7 +1,10 @@
 package me.jellysquid.mods.sodium.client.render.chunk.shader;
 
 import me.jellysquid.mods.sodium.client.SodiumClientMod;
+import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferTarget;
+import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferUsage;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
+import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformInt;
@@ -19,7 +22,6 @@ import static java.lang.Math.log;
 import static java.lang.Math.pow;
 import static net.minecraft.util.math.MathHelper.ceil;
 import static org.lwjgl.opengl.GL15C.*;
-import static org.lwjgl.opengl.GL30C.glBindBufferBase;
 import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
@@ -66,7 +68,7 @@ public class ComputeShaderInterface {
      * Executes the compute shader, using multiple calls to glDispatchCompute if
      * the data set is too large to be sorted in one call.
      */
-    public boolean execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
+    public boolean execute(CommandList commandList, MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
         if(TIMING) {
             glBeginQuery(GL_TIME_ELAPSED, queries[currentQueryIndex]);
         }
@@ -119,30 +121,27 @@ public class ComputeShaderInterface {
         }
         chunkCount++;
 
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject().handle());
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject().handle());
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject());
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject());
 
-        int[] buf = new int[4];
-        glGenBuffers(buf);
+        GlMutableBuffer shaderBuffer;
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[0]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, subDataList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, buf[0]);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, subDataList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 3, shaderBuffer);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[1]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, pointerList.stream().mapToInt(i -> i).toArray(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, buf[1]);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, pointerList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 4, shaderBuffer);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[2]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, batch.getCountBuffer(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, buf[2]);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getCountBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 5, shaderBuffer);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf[3]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, batch.getBaseVertexBuffer(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, buf[3]);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getBaseVertexBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 6, shaderBuffer);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 
         int LOCAL_BMS = 0;

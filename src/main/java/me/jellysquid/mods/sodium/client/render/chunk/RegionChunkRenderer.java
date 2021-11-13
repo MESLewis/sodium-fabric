@@ -161,7 +161,9 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                     compute.getInterface().setup(vertexType);
 
                     RenderRegion.RenderRegionArenas arenas = region.getArenas();
-                    runCompute = compute.getInterface().execute(batch, arenas);
+                    //TODO this prioritizes chunks further from player instead of closer.
+                    //TODO Move all of compute outside of rendering
+                    runCompute = compute.getInterface().execute(commandList, batch, arenas);
                     region.setNeedsTranslucencyCompute(false);
                 }
                 compute.unbind();
