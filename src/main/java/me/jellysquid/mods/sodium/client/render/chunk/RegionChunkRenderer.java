@@ -33,9 +33,6 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 
-import static org.lwjgl.opengl.GL42C.GL_ALL_BARRIER_BITS;
-import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
-
 public class RegionChunkRenderer extends ShaderChunkRenderer {
     private final MultiDrawBatch batch;
     private final GlVertexAttributeBinding[] vertexAttributeBindings;
@@ -109,15 +106,14 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
 
         GlProgram<ComputeShaderInterface> compute = shader.getCompute();
-        boolean runCompute = false;
+        boolean runCompute = true;
+        boolean fullRebuild = false;
         if (compute != null) {
-            compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
-            compute.getInterface().setup(vertexType);
             double cameraX = camera.blockX + camera.deltaX;
             double cameraY = camera.blockY + camera.deltaY;
             double cameraZ = camera.blockZ + camera.deltaZ;
 
-            //Exit early if we haven't moved positions
+            //If we have moved set all chunks as needing compute
             double dx = cameraX - lastUpdateX;
             double dy = cameraY - lastUpdateY;
             double dz = cameraZ - lastUpdateZ;
@@ -125,13 +121,59 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                 lastUpdateX = cameraX;
                 lastUpdateY = cameraY;
                 lastUpdateZ = cameraZ;
-                for (Map.Entry<RenderRegion, List<RenderSection>> region : list.sorted(true)) {
-                    region.getKey().setNeedsTranslucencyCompute(true);
+                fullRebuild = true;
+            }
+
+            super.end();
+            compute.bind();
+            compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
+            compute.getInterface().setup(vertexType);
+
+            for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, false)) {
+                RenderRegion region = entry.getKey();
+                List<RenderSection> regionSections = entry.getValue();
+
+                if(fullRebuild) {
+                    region.setNeedsTranslucencyCompute(fullRebuild);
+                    if(!runCompute) {
+                        continue;
+                    }
+                }
+
+                if (!buildDrawBatches(regionSections, pass, camera)) {
+                    continue;
+                }
+
+                //TODO Clean up, fix lag spikes, fix water
+                if (runCompute && region.getNeedsTranslucencyCompute()) {
+                    if (!regionSections.isEmpty()) {
+                        float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
+                        float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
+                        float z = getCameraTranslation(region.getOriginZ(), camera.blockZ, camera.deltaZ);
+
+                        Matrix4f matrix = matrixStack.peek()
+                                .getModel()
+                                .copy();
+                        matrix.multiplyByTranslation(x, y, z);
+
+                        compute.getInterface().setModelViewMatrix(matrix);
+                        compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
+                        compute.getInterface().setup(vertexType);
+
+                        RenderRegion.RenderRegionArenas arenas = region.getArenas();
+                        //TODO Move all of compute outside of rendering
+                        runCompute = compute.getInterface().execute(commandList, batch, arenas);
+                        region.setNeedsTranslucencyCompute(false);
+                    }
+                }
+                if(!runCompute && !fullRebuild) {
+                    break;
                 }
             }
+            compute.unbind();
+            super.begin(pass);
         }
 
-        runCompute = true;
         for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
             RenderRegion region = entry.getKey();
             List<RenderSection> regionSections = entry.getValue();
@@ -139,38 +181,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             if (!buildDrawBatches(regionSections, pass, camera)) {
                 continue;
             }
-
-            //TODO Clean up, fix lag spikes, fix water
-            if (compute != null && (runCompute && region.getNeedsTranslucencyCompute())) {
-                super.end();
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                compute.bind();
-
-                if (!regionSections.isEmpty()) {
-                    float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
-                    float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
-                    float z = getCameraTranslation(region.getOriginZ(), camera.blockZ, camera.deltaZ);
-
-                    Matrix4f matrix = matrixStack.peek()
-                            .getModel()
-                            .copy();
-                    matrix.multiplyByTranslation(x, y, z);
-
-                    compute.getInterface().setModelViewMatrix(matrix);
-                    compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
-                    compute.getInterface().setup(vertexType);
-
-                    RenderRegion.RenderRegionArenas arenas = region.getArenas();
-                    //TODO this prioritizes chunks further from player instead of closer.
-                    //TODO Move all of compute outside of rendering
-                    runCompute = compute.getInterface().execute(commandList, batch, arenas);
-                    region.setNeedsTranslucencyCompute(false);
-                }
-                compute.unbind();
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-                super.begin(pass);
-            }
-            //END TODO
 
             GlTessellation tessellation = this.createTessellationForRegion(commandList, region.getArenas(), pass);
             this.setModelMatrixUniforms(shader, matrixStack, region, camera);
