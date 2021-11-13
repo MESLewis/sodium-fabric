@@ -66,10 +66,11 @@ public class ComputeShaderInterface {
      * Executes the compute shader, using multiple calls to glDispatchCompute if
      * the data set is too large to be sorted in one call.
      */
-    public void execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
+    public boolean execute(MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
         if(TIMING) {
             glBeginQuery(GL_TIME_ELAPSED, queries[currentQueryIndex]);
         }
+        boolean isCheap = true;
 
         pointerList.clear();
         subDataList.clear();
@@ -166,6 +167,7 @@ public class ComputeShaderInterface {
 
         //Keep getting height bigger until we cover all of n
         for(; height <= maxHeight; height *= 2) {
+            isCheap = false;
             uniformExecutionType.set(GLOBAL_FLIP);
             uniformSortHeight.set(height);
             glDispatchCompute(groups, chunkCount, 1);
@@ -199,6 +201,7 @@ public class ComputeShaderInterface {
                 SodiumClientMod.logger().warn("Compute shader time: " + totalTime / times.length);
             }
         }
+        return isCheap;
     }
 
     public void setModelViewMatrix(Matrix4f matrix) {

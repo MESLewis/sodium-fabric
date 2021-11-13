@@ -4,7 +4,8 @@ import com.google.common.collect.Lists;
 import com.mojang.blaze3d.systems.RenderSystem;
 import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.attribute.GlVertexAttributeBinding;
-import me.jellysquid.mods.sodium.client.gl.buffer.*;
+import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferUsage;
+import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.device.DrawCommandList;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
@@ -14,7 +15,6 @@ import me.jellysquid.mods.sodium.client.gl.tessellation.GlPrimitiveType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlTessellation;
 import me.jellysquid.mods.sodium.client.gl.tessellation.TessellationBinding;
 import me.jellysquid.mods.sodium.client.gl.util.ElementRange;
-import me.jellysquid.mods.sodium.client.gl.util.EnumBitField;
 import me.jellysquid.mods.sodium.client.gl.util.MultiDrawBatch;
 import me.jellysquid.mods.sodium.client.model.quad.properties.ModelQuadFacing;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
@@ -27,21 +27,14 @@ import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderInterface
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.Matrix4f;
-import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.lwjgl.opengl.GL15C.glBindBuffer;
-import static org.lwjgl.opengl.GL30C.glBindBufferBase;
-import static org.lwjgl.opengl.GL32C.*;
-import static org.lwjgl.opengl.GL42C.*;
-import static org.lwjgl.opengl.GL43C.GL_SHADER_STORAGE_BUFFER;
-import static org.lwjgl.opengl.GL43C.glDispatchCompute;
+import static org.lwjgl.opengl.GL42C.GL_ALL_BARRIER_BITS;
+import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
 
 public class RegionChunkRenderer extends ShaderChunkRenderer {
     private final MultiDrawBatch batch;
@@ -51,6 +44,10 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     private final GlMutableBuffer batchSubData;
     private final ByteBuffer batchSubDataBuffer;
     private final boolean isBlockFaceCullingEnabled = SodiumClientMod.options().advanced.useBlockFaceCulling;
+
+    private double lastUpdateX = 0;
+    private double lastUpdateY = 0;
+    private double lastUpdateZ = 0;
 
     public RegionChunkRenderer(RenderDevice device, ChunkVertexType vertexType) {
         super(device, vertexType);
@@ -112,11 +109,29 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
 
         GlProgram<ComputeShaderInterface> compute = shader.getCompute();
+        boolean runCompute = false;
         if (compute != null) {
             compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
             compute.getInterface().setup(vertexType);
+            double cameraX = camera.blockX + camera.deltaX;
+            double cameraY = camera.blockY + camera.deltaY;
+            double cameraZ = camera.blockZ + camera.deltaZ;
+
+            //Exit early if we haven't moved positions
+            double dx = cameraX - lastUpdateX;
+            double dy = cameraY - lastUpdateY;
+            double dz = cameraZ - lastUpdateZ;
+            if(dx * dx + dy * dy + dz * dz > 1.0D) {
+                lastUpdateX = cameraX;
+                lastUpdateY = cameraY;
+                lastUpdateZ = cameraZ;
+                for (Map.Entry<RenderRegion, List<RenderSection>> region : list.sorted(true)) {
+                    region.getKey().setNeedsTranslucencyCompute(true);
+                }
+            }
         }
 
+        runCompute = true;
         for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
             RenderRegion region = entry.getKey();
             List<RenderSection> regionSections = entry.getValue();
@@ -126,7 +141,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             }
 
             //TODO Clean up, fix lag spikes, fix water
-            if (compute != null) {
+            if (compute != null && (runCompute && region.getNeedsTranslucencyCompute())) {
                 super.end();
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
                 compute.bind();
@@ -146,7 +161,8 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                     compute.getInterface().setup(vertexType);
 
                     RenderRegion.RenderRegionArenas arenas = region.getArenas();
-                    compute.getInterface().execute(batch, arenas);
+                    runCompute = compute.getInterface().execute(batch, arenas);
+                    region.setNeedsTranslucencyCompute(false);
                 }
                 compute.unbind();
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
