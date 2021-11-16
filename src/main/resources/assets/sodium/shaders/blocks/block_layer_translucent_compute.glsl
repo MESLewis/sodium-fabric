@@ -114,9 +114,14 @@ float getAverageDistance(IndexGroup indexGroup) {
     ChunkMultiDrawRange subInfo = getSubInfo();
     uint vOffset = vertexOffset[subInfo.DataOffset];
 
-    vec4 rawPosition1 = unpackPos(region_mesh[indexGroup.i1 + vOffset]);
-    vec4 rawPosition2 = unpackPos(region_mesh[indexGroup.i2 + vOffset]);
-    vec4 rawPosition3 = unpackPos(region_mesh[indexGroup.i3 + vOffset]);
+    //Nvidia drivers need these variables defined before unpackPos
+    Packed rm1 = region_mesh[indexGroup.i1 + vOffset];
+    Packed rm2 = region_mesh[indexGroup.i2 + vOffset];
+    Packed rm3 = region_mesh[indexGroup.i3 + vOffset];
+    vec4 rawPosition1 = unpackPos(rm1);
+    vec4 rawPosition2 = unpackPos(rm2);
+    vec4 rawPosition3 = unpackPos(rm3);
+
     float dist12 = length(rawPosition1 - rawPosition2);
     float dist23 = length(rawPosition2 - rawPosition3);
     float dist31 = length(rawPosition3 - rawPosition1);
