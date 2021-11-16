@@ -37,6 +37,9 @@ struct IndexGroup {
     uint i1;
     uint i2;
     uint i3;
+    uint i4;
+    uint i5;
+    uint i6;
 };
 
 struct ChunkMultiDrawRange {
@@ -49,7 +52,7 @@ uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
 uniform int u_IndexOffsetStride = 4; //Number of bits referenced per array entry
-uniform int u_IndexLengthStride = 3; //Number of vertices referenced per array entry
+uniform int u_IndexLengthStride = 6; //Number of vertices referenced per array entry
 uniform int u_ExecutionType;
 uniform int u_SortHeight;
 
@@ -87,6 +90,7 @@ struct IndexDistancePair {
     float distance;
 };
 
+//TODO bigger pair size may be too big for some cards. Gotta look that up.
 //Workgroup memory.
 shared IndexDistancePair local_value[LOCAL_SIZE_X * 2];
 
@@ -117,24 +121,11 @@ float getAverageDistance(IndexGroup indexGroup) {
     vec4 rawPosition1 = unpackPos(region_mesh[indexGroup.i1 + vOffset]);
     vec4 rawPosition2 = unpackPos(region_mesh[indexGroup.i2 + vOffset]);
     vec4 rawPosition3 = unpackPos(region_mesh[indexGroup.i3 + vOffset]);
-    float dist12 = length(rawPosition1 - rawPosition2);
-    float dist23 = length(rawPosition2 - rawPosition3);
-    float dist31 = length(rawPosition3 - rawPosition1);
-    vec4 rawPosition;
-    if(dist12 > dist23) {
-        if(dist12 > dist31) {
-            rawPosition = (rawPosition1 + rawPosition2) / 2;
-        } else {
-            rawPosition = (rawPosition3 + rawPosition1) / 2;
-        }
-    } else {
-        if(dist23 > dist31) {
-            rawPosition = (rawPosition2 + rawPosition3) / 2;
-        } else {
-            rawPosition = (rawPosition3 + rawPosition1) / 2;
-        }
-    }
-//    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3) / 3;
+    vec4 rawPosition4 = unpackPos(region_mesh[indexGroup.i4 + vOffset]);
+    vec4 rawPosition5 = unpackPos(region_mesh[indexGroup.i5 + vOffset]);
+    vec4 rawPosition6 = unpackPos(region_mesh[indexGroup.i6 + vOffset]);
+//    vec4 rawPosition;
+    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3 + rawPosition4 + rawPosition5 + rawPosition6) / 6;
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition1.w)].Offset.xyz;
@@ -159,13 +150,16 @@ uint getFullIndex(uint index) {
 }
 
 IndexGroup readIndexGroup(uint fullIndex) {
-    return IndexGroup(regionIndex[fullIndex + 0], regionIndex[fullIndex + 1], regionIndex[fullIndex + 2]);
+    return IndexGroup(regionIndex[fullIndex + 0], regionIndex[fullIndex + 1], regionIndex[fullIndex + 2], regionIndex[fullIndex + 3], regionIndex[fullIndex + 4], regionIndex[fullIndex + 5]);
 }
 
 void writeIndexGroup(uint fullIndex, IndexGroup indexGroup) {
     regionIndex[fullIndex + 0] = indexGroup.i1;
     regionIndex[fullIndex + 1] = indexGroup.i2;
     regionIndex[fullIndex + 2] = indexGroup.i3;
+    regionIndex[fullIndex + 3] = indexGroup.i4;
+    regionIndex[fullIndex + 4] = indexGroup.i5;
+    regionIndex[fullIndex + 5] = indexGroup.i6;
 }
 
 
@@ -268,11 +262,11 @@ void local_main(uint executionType, uint height) {
     float distance2 = getAverageDistance(rig2);
 
     if (fullIndex1 == DUMMY_INDEX) {
-        rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
+        rig1 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
         distance1 = DUMMY_DISTANCE;
     }
     if (fullIndex2 == DUMMY_INDEX) {
-        rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
+        rig2 = IndexGroup(DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX, DUMMY_INDEX);
         distance2 = DUMMY_DISTANCE;
     }
 

@@ -149,7 +149,7 @@ public class ComputeShaderInterface {
         int GLOBAL_DISPERSE = 3;
 
 
-        int maxHeight = (int) pow(2, ceil(log(largestIndexCount / 3)/log(2)));
+        int maxHeight = (int) pow(2, ceil(log(largestIndexCount / 6)/log(2)));
         int groups = (maxHeight / (computeWorkGroupSizeX * 2)) + 1;
         int height = computeWorkGroupSizeX * 2;
 
