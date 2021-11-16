@@ -117,7 +117,24 @@ float getAverageDistance(IndexGroup indexGroup) {
     vec4 rawPosition1 = unpackPos(region_mesh[indexGroup.i1 + vOffset]);
     vec4 rawPosition2 = unpackPos(region_mesh[indexGroup.i2 + vOffset]);
     vec4 rawPosition3 = unpackPos(region_mesh[indexGroup.i3 + vOffset]);
-    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3) / 3;
+    float dist12 = length(rawPosition1 - rawPosition2);
+    float dist23 = length(rawPosition2 - rawPosition3);
+    float dist31 = length(rawPosition3 - rawPosition1);
+    vec4 rawPosition;
+    if(dist12 > dist23) {
+        if(dist12 > dist31) {
+            rawPosition = (rawPosition1 + rawPosition2) / 2;
+        } else {
+            rawPosition = (rawPosition3 + rawPosition1) / 2;
+        }
+    } else {
+        if(dist23 > dist31) {
+            rawPosition = (rawPosition2 + rawPosition3) / 2;
+        } else {
+            rawPosition = (rawPosition3 + rawPosition1) / 2;
+        }
+    }
+//    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3) / 3;
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition1.w)].Offset.xyz;
