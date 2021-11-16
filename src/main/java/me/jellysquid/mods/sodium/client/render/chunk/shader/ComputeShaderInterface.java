@@ -5,6 +5,7 @@ import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferTarget;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferUsage;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.device.CommandList;
+import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformInt;
@@ -14,6 +15,7 @@ import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
 import me.jellysquid.mods.sodium.client.render.chunk.region.RenderRegion;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.PointerBuffer;
+import org.lwjgl.opengl.GLCapabilities;
 
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -43,6 +45,11 @@ public class ComputeShaderInterface {
     private int currentQueryIndex = 0;
     private int[] times = new int[100];
     private int currentTimeIndex = 0;
+
+    public static boolean isSupported(RenderDevice instance) {
+        GLCapabilities capabilities = instance.getCapabilities();
+        return capabilities.OpenGL43 || (capabilities.GL_ARB_compute_shader && capabilities.GL_ARB_shader_storage_buffer_object);
+    }
 
     public ComputeShaderInterface(ShaderBindingContext context) {
         this.uniformModelViewMatrix = context.bindUniform("u_ModelViewMatrix", GlUniformMatrix4f::new);

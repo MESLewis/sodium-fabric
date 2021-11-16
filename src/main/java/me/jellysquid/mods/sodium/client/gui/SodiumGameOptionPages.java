@@ -11,12 +11,12 @@ import me.jellysquid.mods.sodium.client.gui.options.control.SliderControl;
 import me.jellysquid.mods.sodium.client.gui.options.control.TickBoxControl;
 import me.jellysquid.mods.sodium.client.gui.options.storage.MinecraftOptionsStorage;
 import me.jellysquid.mods.sodium.client.gui.options.storage.SodiumOptionsStorage;
+import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.option.Option;
 import net.minecraft.client.option.*;
 import net.minecraft.client.util.Window;
-import net.minecraft.text.LiteralText;
 import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableText;
 
@@ -297,6 +297,7 @@ public class SodiumGameOptionPages {
                         .setTooltip(new TranslatableText("sodium.options.translucent_face_sorting.tooltip"))
                         .setControl(TickBoxControl::new)
                         .setImpact(OptionImpact.VARIES)
+                        .setEnabled(ComputeShaderInterface.isSupported(RenderDevice.INSTANCE))
                         .setBinding((opts, value) -> opts.advanced.useTranslucentFaceSorting = value, opts -> opts.advanced.useTranslucentFaceSorting)
                         .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
                         .build()
