@@ -26,9 +26,8 @@ import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
 
-    private static final boolean TIMING = true;
-    //TODO are any memory barriers needed?
-    private static final int MEMORY_BARRIERS = GL_BUFFER_UPDATE_BARRIER_BIT;
+    private static final boolean TIMING = false;
+    private static final int MEMORY_BARRIERS = GL_BUFFER_UPDATE_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT;
     //1024 is the minimum. Some cards support 2048 but then we might run into memory issues
     private static final int computeWorkGroupSizeX = 1024;
     private final GlUniformMatrix4f uniformModelViewMatrix;
