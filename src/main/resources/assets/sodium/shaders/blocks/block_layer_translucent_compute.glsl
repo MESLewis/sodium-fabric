@@ -48,7 +48,7 @@ struct ChunkMultiDrawRange {
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
-uniform int u_IndexOffsetStride = 12; //Number of bits referenced per array entry
+uniform int u_IndexOffsetStride = 4; //Number of bits referenced per array entry
 uniform int u_IndexLengthStride = 3; //Number of vertices referenced per array entry
 uniform int u_ExecutionType;
 uniform int u_SortHeight;
@@ -63,7 +63,7 @@ layout(std430, binding = 1) restrict readonly buffer region_mesh_buffer {
 };
 
 layout(std430, binding = 2) coherent buffer region_index_buffer {
-    IndexGroup region_index_groups[];
+    uint regionIndex[];
 };
 
 layout(std430, binding = 3) restrict readonly buffer chunk_sub_count {
@@ -98,7 +98,6 @@ uint getIndexLength(uint i) {
     return indexLength[i] / u_IndexLengthStride;
 }
 
-//If multiple y groups are used ignore the u_ChunkNum uniform and use gl_WorkGroupID.y instead
 ChunkMultiDrawRange getSubInfo() {
     return chunkMultiDrawRange[gl_WorkGroupID.y];
 }
@@ -112,9 +111,6 @@ vec4 unpackPos(Packed p) {
 }
 
 float getAverageDistance(IndexGroup indexGroup) {
-    if(indexGroup.i1 == DUMMY_INDEX) {
-        return DUMMY_DISTANCE;
-    }
     ChunkMultiDrawRange subInfo = getSubInfo();
     uint vOffset = vertexOffset[subInfo.DataOffset];
 
@@ -130,19 +126,29 @@ float getAverageDistance(IndexGroup indexGroup) {
     return length(pos);
 }
 
-//Convert an index from [0..IndicesInChunk] to [0..IndicesInBuffer]
+//Convert an index into the indices array from [0..IndicesInChunk] to [0..IndicesInBuffer]
 uint getFullIndex(uint index) {
     ChunkMultiDrawRange subInfo = getSubInfo();
     uint i = 0;
     while(i < subInfo.DataCount) {
         uint data = subInfo.DataOffset + i;
         if(index < getIndexLength(data)) {
-            return getIndexOffset(data) + index;
+            return getIndexOffset(data) + index * u_IndexLengthStride;
         }
         index = index - getIndexLength(data);
         i = i + 1;
     }
     return DUMMY_INDEX;
+}
+
+IndexGroup readIndexGroup(uint fullIndex) {
+    return IndexGroup(regionIndex[fullIndex + 0], regionIndex[fullIndex + 1], regionIndex[fullIndex + 2]);
+}
+
+void writeIndexGroup(uint fullIndex, IndexGroup indexGroup) {
+    regionIndex[fullIndex + 0] = indexGroup.i1;
+    regionIndex[fullIndex + 1] = indexGroup.i2;
+    regionIndex[fullIndex + 2] = indexGroup.i3;
 }
 
 
@@ -194,23 +200,19 @@ void local_bms(uint h){
     }
 }
 
-
-
-// Performs compare-and-swap over elements held in shared, workgroup-local memory
 void global_compare_and_swap(uvec2 idx){
     uint i1 = getFullIndex(idx.x);
     uint i2 = getFullIndex(idx.y);
-    float distance1 = getAverageDistance(region_index_groups[i1]);
-    float distance2 = getAverageDistance(region_index_groups[i2]);
+    if(i1 != DUMMY_INDEX && i2 != DUMMY_INDEX) {
+        IndexGroup ig1 = readIndexGroup(i1);
+        IndexGroup ig2 = readIndexGroup(i2);
+        float distance1 = getAverageDistance(ig1);
+        float distance2 = getAverageDistance(ig2);
 
-    if(i1 == DUMMY_INDEX || i2 == DUMMY_INDEX) {
-        return;
-    }
-
-    if (distance1 < distance2) {
-        IndexGroup tmp = region_index_groups[i1];
-        region_index_groups[i1] = region_index_groups[i2];
-        region_index_groups[i2] = tmp;
+        if (distance1 < distance2) {
+            writeIndexGroup(i1, ig2);
+            writeIndexGroup(i2, ig1);
+        }
     }
 }
 
@@ -243,8 +245,8 @@ void local_main(uint executionType, uint height) {
 
     uint fullIndex1 = getFullIndex(offset+t*2);
     uint fullIndex2 = getFullIndex(offset+t*2+1);
-    IndexGroup rig1 = region_index_groups[fullIndex1];
-    IndexGroup rig2 = region_index_groups[fullIndex2];
+    IndexGroup rig1 = readIndexGroup(fullIndex1);
+    IndexGroup rig2 = readIndexGroup(fullIndex2);
     float distance1 = getAverageDistance(rig1);
     float distance2 = getAverageDistance(rig2);
 
@@ -275,24 +277,23 @@ void local_main(uint executionType, uint height) {
     IndexGroup ig2 = local_value[t*2+1].indexGroup;
 
     if (fullIndex1 != DUMMY_INDEX) {
-        region_index_groups[fullIndex1] = ig1;
+        writeIndexGroup(fullIndex1, ig1);
     }
     if (fullIndex2 != DUMMY_INDEX) {
-        region_index_groups[fullIndex2] = ig2;
+        writeIndexGroup(fullIndex2, ig2);
     }
 }
 
 void main(){
-//    uint height = gl_WorkGroupSize.x * 2;
-//    uint indexLength = getIndexLength(getSubInfo().DataOffset);
-//    uint computeSize = uint(pow(2, ceil(log(indexLength)/log(2))));
-//    uint usedWorkgroups = (computeSize / (gl_WorkGroupSize.x)) + 1;
+    uint height = gl_WorkGroupSize.x * 2;
+    uint indexLength = getSubInfo().DataIndexCount / u_IndexLengthStride;
+    uint computeSize = uint(pow(2, ceil(log(indexLength)/log(2))));
+    uint usedWorkgroups = (computeSize / (gl_WorkGroupSize.x * 2)) + 1;
 
     //Exit early for unneeded work groups
-    //Doesn't seem to help performance at all?
-//    if(gl_WorkGroupID.x > usedWorkgroups) {
-//        return;
-//    }
+    if(gl_WorkGroupID.x >= usedWorkgroups) {
+        return;
+    }
 
     if(u_ExecutionType == LOCAL_BMS || u_ExecutionType == LOCAL_DISPERSE) {
         local_main(u_ExecutionType, u_SortHeight);
