@@ -140,12 +140,11 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                     }
                 }
 
-                if (!buildDrawBatches(regionSections, pass, camera)) {
-                    continue;
-                }
-
                 //TODO Clean up, fix lag spikes, fix water
                 if (runCompute && region.getNeedsTranslucencyCompute()) {
+                    if (!buildDrawBatches(regionSections, pass, camera)) {
+                        continue;
+                    }
                     if (!regionSections.isEmpty()) {
                         float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
                         float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
@@ -209,7 +208,7 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
 
             this.addDrawCall(state.getModelPart(ModelQuadFacing.UNASSIGNED), indexOffset, baseVertex);
 
-            if (this.isBlockFaceCullingEnabled && !pass.isTranslucent()) {
+            if (this.isBlockFaceCullingEnabled && !(pass.isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting)) {
                 if (camera.posY > bounds.y1) {
                     this.addDrawCall(state.getModelPart(ModelQuadFacing.UP), indexOffset, baseVertex);
                 }
