@@ -9,7 +9,6 @@ import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.device.DrawCommandList;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
-import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlIndexType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlPrimitiveType;
 import me.jellysquid.mods.sodium.client.gl.tessellation.GlTessellation;
@@ -24,7 +23,6 @@ import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.region.RenderRegion;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderBindingPoints;
 import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderInterface;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.system.MemoryStack;
@@ -38,8 +36,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     private final GlVertexAttributeBinding[] vertexAttributeBindings;
 
     private final GlMutableBuffer chunkInfoBuffer;
-    private final GlMutableBuffer batchSubData;
-    private final ByteBuffer batchSubDataBuffer;
     private final boolean isBlockFaceCullingEnabled = SodiumClientMod.options().advanced.useBlockFaceCulling;
 
     private double lastUpdateX = 0;
@@ -66,9 +62,6 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 commandList.uploadData(this.chunkInfoBuffer, createChunkInfoBuffer(stack), GlBufferUsage.STATIC_DRAW);
             }
-
-            this.batchSubData = commandList.createMutableBuffer();
-            batchSubDataBuffer = ByteBuffer.allocate(RenderRegion.REGION_SIZE * 3 * 4);
         }
 
         this.batch = MultiDrawBatch.create(ModelQuadFacing.COUNT * RenderRegion.REGION_SIZE);
@@ -97,55 +90,45 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
     public void render(MatrixStack matrixStack, CommandList commandList,
                        ChunkRenderList list, BlockRenderPass pass,
                        ChunkCameraContext camera) {
-        super.begin(pass);
+        if(pass.isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting) {
+            super.beginCompute(pass);
 
-        ChunkShaderInterface shader = this.activeProgram.getInterface();
+            boolean fullRebuild = false;
+            if (activeComputeProgram != null) {
+                double cameraX = camera.blockX + camera.deltaX;
+                double cameraY = camera.blockY + camera.deltaY;
+                double cameraZ = camera.blockZ + camera.deltaZ;
 
-        shader.setProjectionMatrix(RenderSystem.getProjectionMatrix());
-        shader.setDrawUniforms(this.chunkInfoBuffer);
-
-
-        GlProgram<ComputeShaderInterface> compute = shader.getCompute();
-        boolean runCompute = true;
-        boolean fullRebuild = false;
-        if (compute != null) {
-            double cameraX = camera.blockX + camera.deltaX;
-            double cameraY = camera.blockY + camera.deltaY;
-            double cameraZ = camera.blockZ + camera.deltaZ;
-
-            //If we have moved set all chunks as needing compute
-            double dx = cameraX - lastUpdateX;
-            double dy = cameraY - lastUpdateY;
-            double dz = cameraZ - lastUpdateZ;
-            if(dx * dx + dy * dy + dz * dz > 1.0D) {
-                lastUpdateX = cameraX;
-                lastUpdateY = cameraY;
-                lastUpdateZ = cameraZ;
-                fullRebuild = true;
-            }
-
-            super.end();
-            compute.bind();
-            compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
-            compute.getInterface().setup(vertexType);
-
-            for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, false)) {
-                RenderRegion region = entry.getKey();
-                List<RenderSection> regionSections = entry.getValue();
-
-                if(fullRebuild) {
-                    region.setNeedsTranslucencyCompute(fullRebuild);
-                    if(!runCompute) {
-                        continue;
-                    }
+                //If we have moved set all chunks as needing compute
+                double dx = cameraX - lastUpdateX;
+                double dy = cameraY - lastUpdateY;
+                double dz = cameraZ - lastUpdateZ;
+                if(dx * dx + dy * dy + dz * dz > 1.0D) {
+                    lastUpdateX = cameraX;
+                    lastUpdateY = cameraY;
+                    lastUpdateZ = cameraZ;
+                    fullRebuild = true;
                 }
 
-                //TODO Clean up, fix lag spikes, fix water
-                if (runCompute && region.getNeedsTranslucencyCompute()) {
-                    if (!buildDrawBatches(regionSections, pass, camera)) {
-                        continue;
+                activeComputeProgram.getInterface().setDrawUniforms(this.chunkInfoBuffer);
+
+                boolean runCompute = true;
+                //We want compute to run beginning with the closest chunks
+                for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, false)) {
+                    RenderRegion region = entry.getKey();
+                    List<RenderSection> regionSections = entry.getValue();
+
+                    if(fullRebuild) {
+                        region.setNeedsTranslucencyCompute(true);
+                        if(!runCompute) {
+                            continue;
+                        }
                     }
-                    if (!regionSections.isEmpty()) {
+
+                    if (region.getNeedsTranslucencyCompute() && !regionSections.isEmpty()) {
+                        if (!buildDrawBatches(regionSections, pass, camera)) {
+                            continue;
+                        }
                         float x = getCameraTranslation(region.getOriginX(), camera.blockX, camera.deltaX);
                         float y = getCameraTranslation(region.getOriginY(), camera.blockY, camera.deltaY);
                         float z = getCameraTranslation(region.getOriginZ(), camera.blockZ, camera.deltaZ);
@@ -155,23 +138,25 @@ public class RegionChunkRenderer extends ShaderChunkRenderer {
                                 .copy();
                         matrix.multiplyByTranslation(x, y, z);
 
-                        compute.getInterface().setModelViewMatrix(matrix);
-                        compute.getInterface().setDrawUniforms(this.chunkInfoBuffer);
-                        compute.getInterface().setup(vertexType);
+                        activeComputeProgram.getInterface().setModelViewMatrix(matrix);
 
                         RenderRegion.RenderRegionArenas arenas = region.getArenas();
-                        //TODO Move all of compute outside of rendering
-                        runCompute = compute.getInterface().execute(commandList, batch, arenas);
+                        runCompute = activeComputeProgram.getInterface().execute(commandList, batch, arenas);
                         region.setNeedsTranslucencyCompute(false);
                     }
-                }
-                if(!runCompute && !fullRebuild) {
-                    break;
+                    if(!runCompute && !fullRebuild) {
+                        break;
+                    }
                 }
             }
-            compute.unbind();
-            super.begin(pass);
+            super.endCompute();
         }
+
+        super.begin(pass);
+        ChunkShaderInterface shader = this.activeProgram.getInterface();
+
+        shader.setProjectionMatrix(RenderSystem.getProjectionMatrix());
+        shader.setDrawUniforms(this.chunkInfoBuffer);
 
         for (Map.Entry<RenderRegion, List<RenderSection>> entry : sortedRegions(list, pass.isTranslucent())) {
             RenderRegion region = entry.getKey();

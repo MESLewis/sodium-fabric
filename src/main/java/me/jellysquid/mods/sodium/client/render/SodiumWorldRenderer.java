@@ -5,14 +5,10 @@ import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.device.CommandList;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
-import me.jellysquid.mods.sodium.client.gl.shader.*;
 import me.jellysquid.mods.sodium.client.render.chunk.RenderSectionManager;
 import me.jellysquid.mods.sodium.client.render.chunk.data.ChunkRenderData;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
 import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPassManager;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkFogMode;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ChunkShaderOptions;
-import me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeShaderInterface;
 import me.jellysquid.mods.sodium.client.render.pipeline.context.ChunkRenderCacheShared;
 import me.jellysquid.mods.sodium.client.util.NativeBuffer;
 import me.jellysquid.mods.sodium.client.util.math.FrustumExtended;
@@ -29,16 +25,15 @@ import net.minecraft.client.render.model.ModelLoader;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.profiler.Profiler;
 
-import java.util.*;
-
-import static org.lwjgl.opengl.GL43C.glDispatchCompute;
+import java.util.Collection;
+import java.util.Set;
+import java.util.SortedSet;
 
 /**
  * Provides an extension to vanilla's {@link WorldRenderer}.
@@ -209,6 +204,8 @@ public class SodiumWorldRenderer implements ChunkStatusListener {
         profiler.swap("visible_chunk_tick");
 
         this.renderSectionManager.tickVisibleRenders();
+
+        //TODO create executeCompute in renderSectionManager?
 
         profiler.pop();
 

@@ -1,7 +1,6 @@
 package me.jellysquid.mods.sodium.client.render.chunk;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
-import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.attribute.GlVertexFormat;
 import me.jellysquid.mods.sodium.client.gl.device.RenderDevice;
 import me.jellysquid.mods.sodium.client.gl.shader.*;
@@ -23,6 +22,7 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
     protected final RenderDevice device;
 
     protected GlProgram<ChunkShaderInterface> activeProgram;
+    protected GlProgram<ComputeShaderInterface> activeComputeProgram;
 
     public ShaderChunkRenderer(RenderDevice device, ChunkVertexType vertexType) {
         this.device = device;
@@ -37,29 +37,26 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
             this.programs.put(options, program = this.createShader("blocks/block_layer_opaque", options));
         }
 
-        if (options.pass().isTranslucent() && SodiumClientMod.options().advanced.useTranslucentFaceSorting) {
-            GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
-
-            if (compute == null) {
-                ShaderConstants.Builder constantBuilder = ShaderConstants.builder();
-
-                //Translucent passes use a compute shader for sorting
-                GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,
-                        new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), constantBuilder.build());
-
-                try {
-                    this.computes.put(options,
-                            compute = GlProgram.builder(new Identifier("sodium", "chunk_shader_compute"))
-                                    .attachShader(shader)
-                                    .link(ComputeShaderInterface::new));
-                } finally {
-                    shader.delete();
-                }
-            }
-            program.getInterface().setCompute(compute);
-        }
-
         return program;
+    }
+
+    protected GlProgram<ComputeShaderInterface> compileComputeProgram(ChunkShaderOptions options) {
+        GlProgram<ComputeShaderInterface> compute = this.computes.get(options);
+
+        if (compute == null) {
+            GlShader shader = ShaderLoader.loadShader(ShaderType.COMPUTE,
+                    new Identifier("sodium", "blocks/block_layer_translucent_compute.glsl"), options.constants());
+
+            try {
+                this.computes.put(options,
+                        compute = GlProgram.builder(new Identifier("sodium", "chunk_shader_compute"))
+                                .attachShader(shader)
+                                .link(ComputeShaderInterface::new));
+            } finally {
+                shader.delete();
+            }
+        }
+        return compute;
     }
 
     private GlProgram<ChunkShaderInterface> createShader(String path, ChunkShaderOptions options) {
@@ -101,11 +98,27 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
         this.activeProgram = null;
     }
 
+    protected void beginCompute(BlockRenderPass pass) {
+        ChunkShaderOptions options = new ChunkShaderOptions(ChunkFogMode.SMOOTH, pass);
+
+        this.activeComputeProgram = this.compileComputeProgram(options);
+        this.activeComputeProgram.bind();
+        this.activeComputeProgram.getInterface()
+                .setup(this.vertexType);
+    }
+
+    protected void endCompute() {
+        this.activeComputeProgram.unbind();
+        this.activeComputeProgram = null;
+    }
+
     @Override
     public void delete() {
         this.programs.values()
                 .forEach(GlProgram::delete);
         this.programs.clear();
+        this.computes.values().forEach(GlProgram::delete);
+        this.computes.clear();
     }
 
     @Override

@@ -45,6 +45,10 @@ public class ComputeShaderInterface {
     private int currentQueryIndex = 0;
     private int[] times = new int[100];
     private int currentTimeIndex = 0;
+    private GlMutableBuffer pointerBuffer;
+    private GlMutableBuffer countBuffer;
+    private GlMutableBuffer baseVertexBuffer;
+    private GlMutableBuffer subDataListBuffer;
 
     public static boolean isSupported(RenderDevice instance) {
         GLCapabilities capabilities = instance.getCapabilities();
@@ -130,26 +134,29 @@ public class ComputeShaderInterface {
         commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject());
         commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject());
 
-        GlMutableBuffer shaderBuffer;
+        //TODO probably pre-generate these
+        if(this.baseVertexBuffer == null) {
+            this.pointerBuffer = commandList.createMutableBuffer();
+            this.countBuffer = commandList.createMutableBuffer();
+            this.baseVertexBuffer = commandList.createMutableBuffer();
+            this.subDataListBuffer = commandList.createMutableBuffer();
+        }
 
-        shaderBuffer = commandList.createMutableBuffer();
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, subDataList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 3, shaderBuffer);
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.subDataListBuffer, subDataList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 3, this.subDataListBuffer);
 
-        shaderBuffer = commandList.createMutableBuffer();
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, pointerList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 4, shaderBuffer);
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.pointerBuffer, pointerList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 4, this.pointerBuffer);
 
-        shaderBuffer = commandList.createMutableBuffer();
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getCountBuffer(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 5, shaderBuffer);
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.countBuffer, batch.getCountBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 5, this.countBuffer);
 
-        shaderBuffer = commandList.createMutableBuffer();
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getBaseVertexBuffer(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 6, shaderBuffer);
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.baseVertexBuffer, batch.getBaseVertexBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 6, this.baseVertexBuffer);
 
 
 
+        //TODO set these in the shader at compile time
         int LOCAL_BMS = 0;
         int LOCAL_DISPERSE = 1;
         int GLOBAL_FLIP = 2;
