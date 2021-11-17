@@ -38,32 +38,10 @@ public class IndexBufferBuilder {
 
     public static class Result {
         private final IntArrayList indices;
-
-        private final int maxIndex, minIndex;
-        private final GlIndexType format;
+        private final GlIndexType format = GlIndexType.UNSIGNED_INT;
 
         private Result(IntArrayList indices) {
             this.indices = indices;
-
-            int maxIndex = Integer.MIN_VALUE;
-            int minIndex = Integer.MAX_VALUE;
-
-            IntIterator it = this.indices.iterator();
-
-            while (it.hasNext()) {
-                int i = it.nextInt();
-
-                minIndex = Math.min(minIndex, i);
-                maxIndex = Math.max(maxIndex, i);
-            }
-
-            //TODO only set min index = 0 for translucent passes?
-            this.minIndex = 0;
-//            this.minIndex = minIndex;
-            this.maxIndex = maxIndex;
-
-
-            this.format = GlIndexType.UNSIGNED_INT;
         }
 
         public int writeTo(int offset, ByteBuffer buffer) {
@@ -73,12 +51,7 @@ public class IndexBufferBuilder {
             int pointer = offset;
 
             while (it.hasNext()) {
-                int value = it.nextInt() - this.minIndex;
-
-                switch (this.format) {
-                    case UNSIGNED_INT -> buffer.putInt(pointer, value);
-                }
-
+                buffer.putInt(pointer, it.nextInt());
                 pointer += stride;
             }
 
@@ -94,7 +67,7 @@ public class IndexBufferBuilder {
         }
 
         public int getBaseVertex() {
-            return this.minIndex;
+            return 0;
         }
 
         public GlIndexType getFormat() {
