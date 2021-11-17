@@ -2,7 +2,6 @@ package me.jellysquid.mods.sodium.client.render.chunk.shader;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
-import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformInt;
@@ -27,8 +26,6 @@ public class ChunkShaderInterface {
 
     private final GlUniformBlock uniformBlockDrawParameters;
 
-    private GlProgram<ComputeShaderInterface> compute;
-
     // The fog shader component used by this program in order to setup the appropriate GL state
     private final ChunkShaderFogComponent fogShader;
 
@@ -46,7 +43,6 @@ public class ChunkShaderInterface {
         this.uniformBlockDrawParameters = context.bindUniformBlock("ubo_DrawParameters", 0);
 
         this.fogShader = options.fog().getFactory().apply(context);
-
     }
 
     public void setup(ChunkVertexType vertexType) {
