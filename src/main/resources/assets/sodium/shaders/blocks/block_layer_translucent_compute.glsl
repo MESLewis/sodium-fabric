@@ -5,14 +5,13 @@
 
 #define DUMMY_INDEX 10000000
 #define DUMMY_DISTANCE -1000000
-#define LOCAL_SIZE_X 1024
 
-//TODO set these at compile time
+//These constants must match the definitions in me.jellysquid.mods.sodium.client.render.chunk.shader.ComputeshaderInterface
+#define LOCAL_SIZE_X 1024
 #define LOCAL_BMS 0
 #define LOCAL_DISPERSE 1
 #define GLOBAL_FLIP 2
 #define GLOBAL_DISPERSE 3
-
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
@@ -22,7 +21,6 @@ struct DrawParameters {
 // only fixing broken drivers.
     vec4 Offset;
 };
-
 
 //Define packed vertex data
 struct Packed {
@@ -52,7 +50,6 @@ uniform int u_IndexOffsetStride = 4; //Number of bits referenced per array entry
 uniform int u_IndexLengthStride = 3; //Number of vertices referenced per IndexGroup
 uniform int u_ExecutionType;
 uniform int u_SortHeight;
-
 
 layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
@@ -143,6 +140,7 @@ float getAverageDistance(IndexGroup indexGroup) {
     float dist23 = length(rawPosition2 - rawPosition3);
     float dist31 = length(rawPosition3 - rawPosition1);
     vec4 rawPosition;
+    //TODO There is probably a better way to find the longest side
     if(dist12 > dist23) {
         if(dist12 > dist31) {
             rawPosition = (rawPosition1 + rawPosition2) / 2;
@@ -156,7 +154,6 @@ float getAverageDistance(IndexGroup indexGroup) {
             rawPosition = (rawPosition3 + rawPosition1) / 2;
         }
     }
-//    vec4 rawPosition = (rawPosition1 + rawPosition2 + rawPosition3) / 3;
 
     vec3 vertexPosition = rawPosition.xyz * u_ModelScale + u_ModelOffset;
     vec3 chunkOffset = Chunks[int(rawPosition1.w)].Offset.xyz;

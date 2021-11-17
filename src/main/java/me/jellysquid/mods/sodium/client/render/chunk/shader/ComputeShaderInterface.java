@@ -1,6 +1,5 @@
 package me.jellysquid.mods.sodium.client.render.chunk.shader;
 
-import me.jellysquid.mods.sodium.client.SodiumClientMod;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferTarget;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlBufferUsage;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
@@ -23,15 +22,24 @@ import java.util.ArrayList;
 import static java.lang.Math.log;
 import static java.lang.Math.pow;
 import static net.minecraft.util.math.MathHelper.ceil;
-import static org.lwjgl.opengl.GL15C.*;
 import static org.lwjgl.opengl.GL43C.*;
 
 public class ComputeShaderInterface {
-
-    private static final boolean TIMING = false;
-    private static final int MEMORY_BARRIERS = GL_BUFFER_UPDATE_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT;
-    //1024 is the minimum. Some cards support 2048 but then we might run into memory issues
+    //These constants must be the same as the constants defined in shaders/blocks/block_layer_translucent_compute.glsl
+    private static final int LOCAL_BMS = 0;
+    private static final int LOCAL_DISPERSE = 1;
+    private static final int GLOBAL_FLIP = 2;
+    private static final int GLOBAL_DISPERSE = 3;
+    //1024 is the minimum defined by OpenGL spec.
+    //Some cards support 2048 but then we may run into workgroup memory issues
     private static final int computeWorkGroupSizeX = 1024;
+    private static final int MEMORY_BARRIERS = GL_BUFFER_UPDATE_BARRIER_BIT | GL_UNIFORM_BARRIER_BIT;
+
+    public static boolean isSupported(RenderDevice instance) {
+        GLCapabilities capabilities = instance.getCapabilities();
+        return capabilities.OpenGL43 || (capabilities.GL_ARB_compute_shader && capabilities.GL_ARB_shader_storage_buffer_object);
+    }
+
     private final GlUniformMatrix4f uniformModelViewMatrix;
     private final GlUniformBlock uniformBlockDrawParameters;
     private final GlUniformFloat uniformModelScale;
@@ -41,20 +49,6 @@ public class ComputeShaderInterface {
     private final ArrayList<Integer> pointerList = new ArrayList<>();
     private final ArrayList<Integer> subDataList = new ArrayList<>();
 
-    private int[] queries = new int[2];
-    private int currentQueryIndex = 0;
-    private int[] times = new int[100];
-    private int currentTimeIndex = 0;
-    private GlMutableBuffer pointerBuffer;
-    private GlMutableBuffer countBuffer;
-    private GlMutableBuffer baseVertexBuffer;
-    private GlMutableBuffer subDataListBuffer;
-
-    public static boolean isSupported(RenderDevice instance) {
-        GLCapabilities capabilities = instance.getCapabilities();
-        return capabilities.OpenGL43 || (capabilities.GL_ARB_compute_shader && capabilities.GL_ARB_shader_storage_buffer_object);
-    }
-
     public ComputeShaderInterface(ShaderBindingContext context) {
         this.uniformModelViewMatrix = context.bindUniform("u_ModelViewMatrix", GlUniformMatrix4f::new);
         this.uniformModelScale = context.bindUniform("u_ModelScale", GlUniformFloat::new);
@@ -63,10 +57,6 @@ public class ComputeShaderInterface {
         this.uniformSortHeight = context.bindUniform("u_SortHeight", GlUniformInt::new);
 
         this.uniformBlockDrawParameters = context.bindUniformBlock("ubo_DrawParameters", 0);
-
-        if(TIMING) {
-            glGenQueries(queries);
-        }
     }
 
     public void setup(ChunkVertexType vertexType) {
@@ -79,11 +69,7 @@ public class ComputeShaderInterface {
      * the data set is too large to be sorted in one call.
      */
     public boolean execute(CommandList commandList, MultiDrawBatch batch, RenderRegion.RenderRegionArenas arenas) {
-        if(TIMING) {
-            glBeginQuery(GL_TIME_ELAPSED, queries[currentQueryIndex]);
-        }
         boolean isCheap = true;
-
         pointerList.clear();
         subDataList.clear();
         int chunkCount = 0;
@@ -134,33 +120,23 @@ public class ComputeShaderInterface {
         commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 1, arenas.vertexBuffers.getBufferObject());
         commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 2, arenas.indexBuffers.getBufferObject());
 
-        //TODO probably pre-generate these
-        if(this.baseVertexBuffer == null) {
-            this.pointerBuffer = commandList.createMutableBuffer();
-            this.countBuffer = commandList.createMutableBuffer();
-            this.baseVertexBuffer = commandList.createMutableBuffer();
-            this.subDataListBuffer = commandList.createMutableBuffer();
-        }
+        GlMutableBuffer shaderBuffer;
 
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.subDataListBuffer, subDataList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 3, this.subDataListBuffer);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, subDataList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 3, shaderBuffer);
 
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.pointerBuffer, pointerList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 4, this.pointerBuffer);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, pointerList.stream().mapToInt(i -> i).toArray(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 4, shaderBuffer);
 
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.countBuffer, batch.getCountBuffer(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 5, this.countBuffer);
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getCountBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 5, shaderBuffer);
 
-        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, this.baseVertexBuffer, batch.getBaseVertexBuffer(), GlBufferUsage.DYNAMIC_DRAW);
-        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 6, this.baseVertexBuffer);
-
-
-
-        //TODO set these in the shader at compile time
-        int LOCAL_BMS = 0;
-        int LOCAL_DISPERSE = 1;
-        int GLOBAL_FLIP = 2;
-        int GLOBAL_DISPERSE = 3;
+        shaderBuffer = commandList.createMutableBuffer();
+        commandList.bufferData(GlBufferTarget.SHADER_STORAGE_BUFFER, shaderBuffer, batch.getBaseVertexBuffer(), GlBufferUsage.DYNAMIC_DRAW);
+        commandList.bindBufferBase(GlBufferTarget.SHADER_STORAGE_BUFFER, 6, shaderBuffer);
 
 
         int maxHeight = (int) pow(2, ceil(log(largestIndexCount / 3)/log(2)));
@@ -196,21 +172,6 @@ public class ComputeShaderInterface {
                     glMemoryBarrier(MEMORY_BARRIERS);
                     break;
                 }
-            }
-        }
-
-        if(TIMING) {
-            glEndQuery(GL_TIME_ELAPSED);
-            currentQueryIndex = (currentQueryIndex + 1) % 2;
-            //Query last frame's index so we don't slow down waiting for this frames query to finish
-            times[currentTimeIndex] = glGetQueryObjecti(queries[currentQueryIndex], GL_QUERY_RESULT);
-            currentTimeIndex = (currentTimeIndex + 1) % 100;
-            if(currentTimeIndex == 0) {
-                int totalTime = 0;
-                for(int i : times) {
-                    totalTime += i;
-                }
-                SodiumClientMod.logger().warn("Compute shader time: " + totalTime / times.length);
             }
         }
         return isCheap;
