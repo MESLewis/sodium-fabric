@@ -3,16 +3,11 @@ package me.jellysquid.mods.sodium.client.render.chunk.shader;
 import com.mojang.blaze3d.systems.RenderSystem;
 import me.jellysquid.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import me.jellysquid.mods.sodium.client.gl.shader.GlProgram;
-import me.jellysquid.mods.sodium.client.gl.shader.GlShader;
-import me.jellysquid.mods.sodium.client.gl.shader.ShaderLoader;
-import me.jellysquid.mods.sodium.client.gl.shader.ShaderType;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformBlock;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformFloat;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformInt;
 import me.jellysquid.mods.sodium.client.gl.shader.uniform.GlUniformMatrix4f;
 import me.jellysquid.mods.sodium.client.model.vertex.type.ChunkVertexType;
-import me.jellysquid.mods.sodium.client.render.chunk.passes.BlockRenderPass;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Matrix4f;
 import org.lwjgl.opengl.GL32C;
 
@@ -81,13 +76,5 @@ public class ChunkShaderInterface {
 
     public void setDrawUniforms(GlMutableBuffer buffer) {
         this.uniformBlockDrawParameters.bindBuffer(buffer);
-    }
-
-    public void setCompute(GlProgram<ComputeShaderInterface> compute) {
-        this.compute = compute;
-    }
-
-    public GlProgram<ComputeShaderInterface> getCompute() {
-        return this.compute;
     }
 }
