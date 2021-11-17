@@ -205,13 +205,10 @@ public class SodiumWorldRenderer implements ChunkStatusListener {
 
         this.renderSectionManager.tickVisibleRenders();
 
-        //TODO create executeCompute in renderSectionManager?
-
         profiler.pop();
 
         Entity.setRenderDistanceMultiplier(MathHelper.clamp((double) this.client.options.viewDistance / 8.0D, 1.0D, 2.5D) * (double) this.client.options.entityDistanceScaling);
     }
-
 
     /**
      * Performs a render pass for the given {@link RenderLayer} and draws all visible chunks for it.
