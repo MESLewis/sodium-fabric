@@ -48,8 +48,8 @@ struct ChunkMultiDrawRange {
 uniform mat4 u_ModelViewMatrix;
 uniform float u_ModelScale;
 uniform float u_ModelOffset;
-uniform int u_IndexOffsetStride = 4; //Number of bits referenced per array entry
-uniform int u_IndexLengthStride = 3; //Number of vertices referenced per array entry
+uniform int u_IndexOffsetStride = 4; //Number of bits referenced per array entry in regionIndex
+uniform int u_IndexLengthStride = 3; //Number of vertices referenced per IndexGroup
 uniform int u_ExecutionType;
 uniform int u_SortHeight;
 
@@ -58,8 +58,25 @@ layout(std140, binding = 0) uniform ubo_DrawParameters {
     DrawParameters Chunks[256];
 };
 
+/*
+A chunk is "big" if the number of verts in its translucent mesh is > LOCAL_SIZE_X * 2 * 3.
+If a chunk is "big" multiple dispatches are required to fully sort the chunk and therefor the region.
+
+Compute shaders have 3 levels of granularity:
+Dispatch -  A call to glDispatchCompute creates a Dispatch consisting of multiple work groups.
+            The number of work groups per dispatch are defined when calling the dispatch as X, Y, and Z values.
+
+WorkGroup - For this implementation gl_WorkGroupID.y indicates the chunk within the region that each work group is working on
+            while gl_WorkGroupID.x indicates the position within the chunk, and is only used for regions where
+            at least one chunk is "big"
+
+Invocation or Thread -  The smallest unit of a compute shader. There are LOCAL_SIZE_X Invocations for each WorkGroup
+                        Invocations have the distinct advantage of being able to share memory between other invocations
+                        within their work group and also are able to sync execution within their work group.
+*/
+
 layout(std430, binding = 1) restrict readonly buffer region_mesh_buffer {
-    Packed region_mesh[];
+    Packed regionMesh[];
 };
 
 layout(std430, binding = 2) coherent buffer region_index_buffer {
@@ -115,9 +132,9 @@ float getAverageDistance(IndexGroup indexGroup) {
     uint vOffset = vertexOffset[subInfo.DataOffset];
 
     //Nvidia drivers need these variables defined before unpackPos
-    Packed rm1 = region_mesh[indexGroup.i1 + vOffset];
-    Packed rm2 = region_mesh[indexGroup.i2 + vOffset];
-    Packed rm3 = region_mesh[indexGroup.i3 + vOffset];
+    Packed rm1 = regionMesh[indexGroup.i1 + vOffset];
+    Packed rm2 = regionMesh[indexGroup.i2 + vOffset];
+    Packed rm3 = regionMesh[indexGroup.i3 + vOffset];
     vec4 rawPosition1 = unpackPos(rm1);
     vec4 rawPosition2 = unpackPos(rm2);
     vec4 rawPosition3 = unpackPos(rm3);
@@ -172,7 +189,6 @@ void writeIndexGroup(uint fullIndex, IndexGroup indexGroup) {
     regionIndex[fullIndex + 1] = indexGroup.i2;
     regionIndex[fullIndex + 2] = indexGroup.i3;
 }
-
 
 // Performs compare-and-swap over elements held in shared, workgroup-local memory
 void local_compare_and_swap(uvec2 idx){
